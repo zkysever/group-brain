@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+data/group_brain.db
+data/group_brain.db-wal
+data/group_brain.db-shm
+data/raw/*.db
+data/raw/*.db-wal
+data/raw/*.db-shm
+.DS_Store
