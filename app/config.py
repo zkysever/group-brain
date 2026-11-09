@@ -27,16 +27,30 @@ PORT = 8000
 SECRETS_DIR = Path.home() / ".dsh" / "secrets"
 
 
-def _read_secret(name: str) -> str:
-    v = os.environ.get(name, "").strip()
+def _read_secret(env_name: str, file_name: str) -> str:
+    """优先环境变量，其次 ~/.dsh/secrets/<file_name>（本机自己跑的时候）。
+
+    secrets 文件是人类手写的，里面常带注释（`# 余额 98.05 元`）甚至整段说明，
+    所以不能直接把整个文件当 key —— 那样会得到
+    `InvalidHeader: ... in header value: 'Bearer # DeepSeek API Key\\n...'`。
+    规则：丢掉空行和 # / // 开头的注释行，取最后一行。
+    """
+    v = os.environ.get(env_name, "").strip()
     if v:
         return v
-    p = SECRETS_DIR / "siliconflow-api-key.txt"
-    if p.exists():
-        return p.read_text(encoding="utf-8").strip()
-    return ""
+    p = SECRETS_DIR / file_name
+    if not p.exists():
+        return ""
+    lines = [ln.strip() for ln in p.read_text(encoding="utf-8").splitlines()]
+    lines = [ln for ln in lines if ln and not ln.startswith("#") and not ln.startswith("//")]
+    return lines[-1] if lines else ""
 
 
-SILICONFLOW_KEY = _read_secret("SILICONFLOW_API_KEY")
+SILICONFLOW_KEY = _read_secret("SILICONFLOW_API_KEY", "siliconflow-api-key.txt")
 EMBEDDING_MODEL = "BAAI/bge-m3"
 EMBEDDING_DIM = 1024
+
+# A2 用：DeepSeek 的对话模型（function calling）
+DEEPSEEK_KEY = _read_secret("DEEPSEEK_API_KEY", "deepseek-api-key.txt")
+DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")

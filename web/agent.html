@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>group-brain · Agent v0.1</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel2: #1d2129;
+    --line: #262b36;
+    --text: #e7e9ee;
+    --dim: #8b93a7;
+    --accent: #5b8cff;
+    --ok: #3ecf8e;
+    --warn: #f0b400;
+    --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px 16px 64px;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .5px; }
+  .badge {
+    display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px;
+    background: rgba(91,140,255,.15); color: var(--accent); font-size: 12px; vertical-align: middle;
+  }
+  .sub { color: var(--dim); font-size: 13px; margin-bottom: 18px; }
+  .row { display: flex; gap: 8px; margin-bottom: 6px; }
+  input[type=text] {
+    flex: 1; min-width: 0; padding: 12px 14px; font-size: 16px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 12px; outline: none;
+  }
+  input[type=text]:focus { border-color: var(--accent); }
+  button {
+    padding: 12px 18px; font-size: 15px; border-radius: 12px; border: 0;
+    background: var(--accent); color: #fff; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .55; }
+  .hints { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 22px; }
+  .hint {
+    padding: 5px 10px; font-size: 12px; border-radius: 999px; cursor: pointer;
+    background: var(--panel); color: var(--dim); border: 1px solid var(--line);
+  }
+  .hint:hover { color: var(--text); border-color: var(--accent); }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px; margin-bottom: 14px;
+  }
+  .card h2 { font-size: 13px; color: var(--dim); margin: 0 0 10px; font-weight: 500; letter-spacing: 1px; }
+  .answer { font-size: 16px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .chip {
+    font-size: 12px; padding: 3px 9px; border-radius: 999px;
+    background: rgba(91,140,255,.12); color: var(--accent);
+  }
+  .chip.none { background: rgba(139,147,167,.12); color: var(--dim); }
+  .tool { border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 12px; }
+  .tool:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+  .tool .name { font-family: ui-monospace, Consolas, monospace; font-size: 13px; color: var(--ok); }
+  .tool .args { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--dim); word-break: break-all; }
+  .hit { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line); }
+  .hit:first-of-type { border-top: 0; }
+  .hit img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; flex: none; background: var(--panel2); }
+  .hit .txt { font-size: 13px; flex: 1; min-width: 0; }
+  .hit .meta { font-size: 11px; color: var(--dim); margin-top: 2px; }
+  .err { color: var(--bad); }
+  .foot { color: var(--dim); font-size: 12px; margin-top: 24px; }
+  .foot a { color: var(--accent); text-decoration: none; }
+  .spin { display: inline-block; animation: sp 1s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>group-brain<span class="badge">Agent v0.1</span></h1>
+  <div class="sub">把检索当工具交给模型：它自己决定调不调、调哪个。下面是它的调用记录，可以挑错。</div>
+
+  <div class="row">
+    <input id="q" type="text" placeholder="问点需要翻记录的话，比如：谁说过要吃鱼片" autocomplete="off">
+    <button id="go">问</button>
+  </div>
+  <div class="hints" id="hints"></div>
+
+  <div id="out"></div>
+
+  <div class="foot">
+    同一个问题，<a href="/">直接检索</a>只有结果没有解释；这里多了「它有没有乱调工具」。
+  </div>
+</div>
+
+<script>
+const qEl = document.getElementById('q');
+const goEl = document.getElementById('go');
+const outEl = document.getElementById('out');
+
+// 这三条是故意选的：第一条该调 search_memory，第二条该调 search_meme，
+// 第三条根本不该调工具（用来抓「过度调用」）。
+const HINTS = [
+  '谁说过要吃鱼片',
+  '给我一张生气的表情',
+  '你好呀',
+  '上次有人说我像什么',
+  '今天几号'
+];
+
+HINTS.forEach(t => {
+  const b = document.createElement('span');
+  b.className = 'hint';
+  b.textContent = t;
+  b.onclick = () => { qEl.value = t; ask(); };
+  document.getElementById('hints').appendChild(b);
+});
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+function renderTrace(trace) {
+  const card = el('div', 'card');
+  card.appendChild(el('h2', null, '工具调用记录'));
+
+  const chips = el('div', 'chips');
+  if (!trace || trace.length === 0) {
+    chips.appendChild(el('span', 'chip none', '一次都没调（纯聊天）'));
+  } else {
+    trace.forEach(t => {
+      const label = t.tool + (t.n !== undefined ? ' · ' + t.n + ' 条' : '') + (t.ms ? ' · ' + t.ms + 'ms' : '');
+      chips.appendChild(el('span', 'chip', label));
+    });
+  }
+  card.appendChild(chips);
+
+  (trace || []).forEach(t => {
+    const box = el('div', 'tool');
+    box.appendChild(el('div', 'name', t.tool));
+    const args = t.args && Object.keys(t.args).length ? JSON.stringify(t.args) : '（无参数）';
+    box.appendChild(el('div', 'args', args + (t.mode && t.mode !== '-' ? '  ·  mode=' + t.mode : '')));
+    (t.hits || []).forEach(h => {
+      const row = el('div', 'hit');
+      if (h.url) {
+        const img = document.createElement('img');
+        img.src = h.url;
+        img.alt = '';
+        row.appendChild(img);
+      }
+      const txt = el('div', 'txt');
+      txt.appendChild(el('div', null, h.text || ''));
+      txt.appendChild(el('div', 'meta', [h.who, h.ts, h.tag].filter(Boolean).join(' · ')));
+      row.appendChild(txt);
+      box.appendChild(row);
+    });
+    card.appendChild(box);
+  });
+  return card;
+}
+
+async function ask() {
+  const q = qEl.value.trim();
+  if (!q) return;
+  goEl.disabled = true;
+  outEl.innerHTML = '';
+  const loading = el('div', 'card');
+  loading.appendChild(el('div', 'answer', '想一下…'));
+  outEl.appendChild(loading);
+
+  try {
+    const r = await fetch('/api/agent?q=' + encodeURIComponent(q));
+    if (r.status === 401) { location.href = '/login'; return; }
+    const d = await r.json();
+
+    outEl.innerHTML = '';
+    if (!d.ok) {
+      const c = el('div', 'card');
+      c.appendChild(el('div', 'answer err', d.error || '出错了'));
+      outEl.appendChild(c);
+      return;
+    }
+
+    const ans = el('div', 'card');
+    ans.appendChild(el('h2', null, '回答'));
+    ans.appendChild(el('div', 'answer', d.answer || '（空的）'));
+    ans.appendChild(el('div', 'meta', '模型 ' + d.model + ' · ' + d.rounds + ' 轮工具 · 一共 ' + d.took_ms + 'ms'));
+    outEl.appendChild(ans);
+    outEl.appendChild(renderTrace(d.trace));
+  } catch (e) {
+    outEl.innerHTML = '';
+    const c = el('div', 'card');
+    c.appendChild(el('div', 'answer err', '网络错误：' + e));
+    outEl.appendChild(c);
+  } finally {
+    goEl.disabled = false;
+  }
+}
+
+goEl.onclick = ask;
+qEl.addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+</script>
+</body>
+</html>

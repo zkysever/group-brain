@@ -16,7 +16,7 @@ from urllib.parse import parse_qs
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from . import auth, db, search
+from . import agent, auth, db, search
 from .config import MEME_PACKS_DIR, WEB_DIR
 
 app = FastAPI(title="group-brain", version="0.5.0")
@@ -140,6 +140,26 @@ def api_search(
 @app.get("/api/stats")
 def api_stats():
     return search.stats(conn())
+
+
+@app.get("/agent", response_class=HTMLResponse)
+def agent_page() -> str:
+    page = WEB_DIR / "agent.html"
+    if not page.exists():
+        raise HTTPException(500, "web/agent.html 不见了")
+    return page.read_text(encoding="utf-8")
+
+
+@app.get("/api/agent")
+def api_agent(
+    q: str = Query("", description="用户的一句话"),
+    rounds: int = Query(3, ge=0, le=5, description="最多允许几轮工具调用"),
+):
+    """A2：把检索当工具交给模型，由它自己决定调不调、调哪个。"""
+    q = q.strip()
+    if not q:
+        return {"ok": False, "error": "问题不能为空", "answer": "", "trace": []}
+    return agent.run(conn(), q, max_rounds=rounds)
 
 
 @app.get("/api/meme/{meme_id}")
