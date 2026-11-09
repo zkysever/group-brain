@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>group-brain · 群聊记忆体 v0.5</title>
+<title>group-brain · 群聊记忆体 v0.6</title>
 <style>
   :root {
     --bg: #0f1115;
@@ -112,6 +112,31 @@
   }
   .hit .kw { color: var(--muted); font-size: 12px; margin-top: 6px; }
 
+  /* v0.2 记忆回放：把一句话放回它原来的那段对话里 */
+  .hit .ctxbtn {
+    margin-top: 10px;
+    padding: 4px 11px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .hit .ctxbtn:hover { border-color: var(--accent); color: var(--accent); }
+  .ctxbox { margin-top: 10px; border-left: 2px solid var(--line); padding-left: 12px; }
+  .ctxrow {
+    padding: 6px 0;
+    font-size: 13px;
+    color: var(--muted);
+    border-bottom: 1px dashed #ffffff0d;
+  }
+  .ctxrow:last-child { border-bottom: 0; }
+  .ctxrow .who { color: var(--accent); }
+  .ctxrow .body { color: var(--text); white-space: pre-wrap; word-break: break-word; }
+  .ctxrow.target { background: var(--accent-soft); border-radius: 6px; padding: 6px 8px; margin: 4px -8px; }
+  .ctxrow.target .body { font-weight: 600; }
+
   .empty { color: var(--muted); padding: 26px 0; }
   .err {
     padding: 14px 16px;
@@ -128,7 +153,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>group-brain<span class="badge">v0.5</span></h1>
+    <h1>group-brain<span class="badge">v0.6</span></h1>
     <p>群聊记忆体 · 关键词 + 向量混合检索（SQLite FTS5 + bge-m3）</p>
   </header>
 
@@ -210,6 +235,8 @@ function render(data) {
     return `<div class="hit">
       <div class="top"><span class="who">${esc(h.sender_name || '未知')}${h.kind === 'bot' ? ' · bot' : ''}</span><span>${esc(h.ts || '')}</span></div>
       <div class="body">${esc(h.text)}</div>
+      <button class="ctxbtn" data-id="${h.id}">看上下文</button>
+      <div class="ctxbox" id="ctx-${h.id}" hidden></div>
     </div>`;
   }).join('');
   $results.innerHTML = html;
@@ -236,6 +263,35 @@ async function doSearch() {
 
 $go.addEventListener('click', doSearch);
 $q.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+// 记忆回放：点「看上下文」把前后几条拉出来，点第二次收起来
+$results.addEventListener('click', async e => {
+  const btn = e.target.closest('.ctxbtn');
+  if (!btn) return;
+  const box = document.getElementById('ctx-' + btn.dataset.id);
+  if (!box) return;
+  if (!box.hidden) { box.hidden = true; btn.textContent = '看上下文'; return; }
+
+  btn.textContent = '拉取中…';
+  try {
+    const r = await fetch(`/api/context?id=${btn.dataset.id}&before=4&after=4`);
+    if (r.status === 401) { location.href = '/login'; return; }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    box.innerHTML = d.messages.map(m => `
+      <div class="ctxrow${m.target ? ' target' : ''}">
+        <span class="who">${esc(m.sender_name || '未知')}</span>
+        <span> · ${esc((m.ts || '').slice(11, 19))}</span>
+        <div class="body">${esc(m.text)}</div>
+      </div>`).join('');
+    box.hidden = false;
+    btn.textContent = '收起';
+  } catch (err) {
+    btn.textContent = '看上下文';
+    box.hidden = false;
+    box.innerHTML = `<div class="err">拉上下文失败：${esc(err.message)}</div>`;
+  }
+});
 
 $chips.addEventListener('click', e => {
   const btn = e.target.closest('.chip');

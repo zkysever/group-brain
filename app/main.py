@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from . import agent, auth, db, search
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.5.0")
+app = FastAPI(title="group-brain", version="0.6.0")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
 PUBLIC = {"/login", "/api/health", "/favicon.ico"}
@@ -140,6 +140,38 @@ def api_search(
 @app.get("/api/stats")
 def api_stats():
     return search.stats(conn())
+
+
+@app.get("/api/context")
+def api_context(
+    id: int = Query(..., description="消息 id（搜索结果里的那条）"),
+    before: int = Query(3, ge=0, le=10, description="往前几条"),
+    after: int = Query(3, ge=0, le=10, description="往后几条"),
+):
+    """v0.2 记忆回放：给一条消息，把前后的对话一起端出来。
+
+    为什么值得做：搜索给的是「一句孤立的话」。但群里的话有一半意思在上下文里——
+    「你试试」单看莫名其妙，配上前面那句「我吃了三碗」就笑了。
+    """
+    rows = db.window(conn(), id, before, after)
+    if not rows:
+        raise HTTPException(404, "没有这条消息")
+    return {
+        "target_id": id,
+        "count": len(rows),
+        "span": [rows[0]["ts"], rows[-1]["ts"]],
+        "messages": [
+            {
+                "id": r["id"],
+                "ts": r["ts"],
+                "sender_name": r["sender_name"],
+                "kind": r["kind"],
+                "text": r["text"],
+                "target": r["id"] == id,
+            }
+            for r in rows
+        ],
+    }
 
 
 @app.get("/agent", response_class=HTMLResponse)
