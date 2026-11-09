@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
 
 from . import db, search
-from .config import WEB_DIR
+from .config import MEME_PACKS_DIR, WEB_DIR
 
 app = FastAPI(title="group-brain", version="0.1.0")
 
@@ -57,6 +57,8 @@ def api_meme(meme_id: int):
     if not row:
         raise HTTPException(404, "没有这张图")
     p = Path(row["path"])
+    if not p.is_absolute():          # 库里存的是相对 MEME_PACKS_DIR 的路径
+        p = MEME_PACKS_DIR / p
     if not p.exists():
         raise HTTPException(404, f"图片文件不在: {p}")
     media, _ = mimetypes.guess_type(p.name)

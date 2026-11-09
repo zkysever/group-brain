@@ -2,7 +2,8 @@
 
 数据源：%USERPROFILE%\\.dsh\\meme-packs\\<pack>\\index.db
   memes(path, tag, file_name, caption, keywords, mtime, captioned_at)
-图片本身不搬，库里存绝对路径，网页通过 /api/meme/{id} 现读现发。
+图片本身不搬，库里存「相对 MEME_PACKS_DIR 的路径」（形如 dafeiyu-learned/memes/sad/x.jpg），
+网页通过 /api/meme/{id} 现读现发。存相对路径的好处：本机和服务器能共用同一个库文件。
 """
 from __future__ import annotations
 
@@ -49,18 +50,19 @@ def main() -> None:
 
             n, missing = 0, 0
             for r in rows:
-                rel = (r["path"] or "").replace("\\", "/")
+                rel = (r["path"] or "").replace("\\", "/").lstrip("/")
                 abs_path = (pack / rel).resolve()
                 if not abs_path.exists():
                     missing += 1
                     continue
+                stored_path = f"{pack.name}/{rel}"
                 caption = clean_text(r["caption"] or "")
                 keywords = clean_text(r["keywords"] or "")
                 tag = (r["tag"] or "").strip()
                 cur = conn.execute(
                     "INSERT OR REPLACE INTO memes(pack, tag, caption, keywords, path, file_name) "
                     "VALUES(?,?,?,?,?,?)",
-                    (pack.name, tag, caption, keywords, str(abs_path), r["file_name"] or abs_path.name),
+                    (pack.name, tag, caption, keywords, stored_path, r["file_name"] or abs_path.name),
                 )
                 mid = cur.lastrowid
                 bigram = to_bigrams(f"{caption} {keywords} {tag}")
