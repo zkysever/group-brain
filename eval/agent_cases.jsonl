@@ -1,0 +1,30 @@
+{"q": "谁说过要吃鱼片", "tools": ["search_memory"], "max_calls": 2, "note": "明确要翻群聊，且应贴原话"}
+{"q": "有没有人提过豆包", "tools": ["search_memory"], "max_calls": 2, "note": "原话是「怎么像豆包（）」"}
+{"q": "上次有人骂我傻吗", "tools": ["search_memory"], "max_calls": 2, "note": "存在「你才傻」这类话"}
+{"q": "机器人说过开盒的事吗", "tools": ["search_memory"], "max_calls": 2, "note": "bot 原话「这属于扒人隐私，违规」"}
+{"q": "有人叫我别催吗", "tools": ["search_memory"], "max_calls": 2, "note": "表情包与聊天里都有「别催」"}
+{"q": "群里聊过鱼片怎么做吗", "tools": ["search_memory"], "max_calls": 2, "note": "bot 那串菜名"}
+{"q": "有人说过压力大吗", "tools": ["search_memory"], "max_calls": 2, "note": "压力相关的原话"}
+{"q": "谁在群里说要减肥", "tools": ["search_memory"], "max_calls": 2, "note": "不存在也必须老实说没有"}
+{"q": "群里谁最常说话", "tools": ["search_memory"], "max_calls": 2, "note": "需要翻统计，一次检索不够就两次"}
+{"q": "有人说过晚安吗", "tools": ["search_memory"], "max_calls": 2, "note": "常见寒暄，应能查到"}
+{"q": "昨天有谁在群里说话", "tools": ["search_memory", "get_time"], "max_calls": 3, "note": "这条一开始我把 get_time 判成「多调了」，其实是我错：要理解「昨天」必须先知道今天几号。改的是评测集，不是代码。"}
+{"q": "上次那个说自己是鱼的人", "tools": ["search_memory"], "max_calls": 3, "note": "指代消解，A2 最难的一类"}
+{"q": "来个生气的表情", "tools": ["search_meme"], "max_calls": 2, "note": "应返回图链"}
+{"q": "有没有委屈的图", "tools": ["search_meme"], "max_calls": 2, "note": "sad 类"}
+{"q": "给我一张得意的表情包", "tools": ["search_meme"], "max_calls": 2, "note": "happy 类"}
+{"q": "找张害羞的图", "tools": ["search_meme"], "max_calls": 2, "note": "shy 类，只有 6 张"}
+{"q": "有没有睡觉的表情", "tools": ["search_meme"], "max_calls": 2, "note": "daily 类"}
+{"q": "来张困惑的表情包", "tools": ["search_meme"], "max_calls": 2, "note": "confused 类"}
+{"q": "有生无可恋的表情吗", "tools": ["search_meme"], "max_calls": 2, "note": "语义描述，关键词可能不命中"}
+{"q": "发我一张开心的贴图", "tools": ["search_meme"], "max_calls": 2, "note": "happy 类"}
+{"q": "今天几号", "tools": ["get_time"], "max_calls": 1, "note": "不该去翻库"}
+{"q": "现在几点", "tools": ["get_time"], "max_calls": 1, "note": "不该去翻库"}
+{"q": "今天星期几", "tools": ["get_time"], "max_calls": 1, "note": "不该去翻库"}
+{"q": "今年是哪年", "tools": ["get_time"], "max_calls": 1, "note": "不该去翻库"}
+{"q": "你好呀", "tools": [], "max_calls": 0, "note": "寒暄，调了就是过度调用"}
+{"q": "谢谢", "tools": [], "max_calls": 0, "note": "同上"}
+{"q": "哈哈哈哈哈", "tools": [], "max_calls": 0, "note": "同上"}
+{"q": "晚安", "tools": [], "max_calls": 0, "note": "同上"}
+{"q": "你是机器人吗", "tools": [], "max_calls": 0, "note": "问身份，不该翻库"}
+{"q": "好的", "tools": [], "max_calls": 0, "note": "同上"}

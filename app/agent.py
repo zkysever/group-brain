@@ -93,7 +93,12 @@ def available() -> bool:
 
 
 def _chat(messages: list[dict[str, Any]]) -> dict[str, Any]:
-    """打一次 DeepSeek。带 tools 就是「你先想想要不要调工具」。"""
+    """打一次 DeepSeek。带 tools 就是「你先想想要不要调工具」。
+
+    会重试：跑评测时遇到过 `SSLError: Max retries exceeded`——国内到 api.deepseek.com
+    偶尔就这么一下。一次抖动不该让整条对话报错，所以 3 次、指数退避。
+    注意只重试网络层和 5xx/429，别把 400（参数错）也重试，那样只会更快地把额度烧完。
+    """
     payload = {
         "model": cfg.DEEPSEEK_MODEL,
         "messages": messages,
@@ -101,14 +106,22 @@ def _chat(messages: list[dict[str, Any]]) -> dict[str, Any]:
         "tool_choice": "auto",
         "temperature": 0.3,
     }
-    r = requests.post(
-        cfg.DEEPSEEK_URL,
-        json=payload,
-        headers={"Authorization": f"Bearer {cfg.DEEPSEEK_KEY}"},
-        timeout=60,
-    )
-    r.raise_for_status()
-    return r.json()
+    headers = {"Authorization": f"Bearer {cfg.DEEPSEEK_KEY}"}
+
+    last: Exception | None = None
+    for attempt in range(3):
+        try:
+            r = requests.post(cfg.DEEPSEEK_URL, json=payload, headers=headers, timeout=60)
+            if r.status_code in (429, 500, 502, 503, 504):
+                raise requests.HTTPError(f"上游 {r.status_code}: {r.text[:120]}")
+            r.raise_for_status()
+            return r.json()
+        except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as e:
+            last = e
+            if attempt == 2:
+                break
+            time.sleep(1.5 * (attempt + 1))
+    raise last  # type: ignore[misc]
 
 
 def _trim_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
