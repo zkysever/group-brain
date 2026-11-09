@@ -22,6 +22,21 @@ MEME_PACKS_DIR = Path(
 HOST = "127.0.0.1"
 PORT = 8000
 
-# 可选：配置了硅基流动 key 才启用向量检索（v0.4 才接）
-SILICONFLOW_KEY = os.environ.get("SILICONFLOW_API_KEY", "").strip()
+# 可选：配置了硅基流动 key 才启用向量检索。
+# 优先读环境变量（服务器上放 .env），没有就读本机 secrets 文件（自己跑的时候）。
+SECRETS_DIR = Path.home() / ".dsh" / "secrets"
+
+
+def _read_secret(name: str) -> str:
+    v = os.environ.get(name, "").strip()
+    if v:
+        return v
+    p = SECRETS_DIR / "siliconflow-api-key.txt"
+    if p.exists():
+        return p.read_text(encoding="utf-8").strip()
+    return ""
+
+
+SILICONFLOW_KEY = _read_secret("SILICONFLOW_API_KEY")
 EMBEDDING_MODEL = "BAAI/bge-m3"
+EMBEDDING_DIM = 1024

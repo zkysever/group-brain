@@ -1,11 +1,22 @@
-"""检索层：FTS5 关键词检索 + RRF 融合（向量检索留到 v0.4）。"""
+"""检索层：FTS5 关键词 + bge-m3 向量，两路用 RRF 融合。
+
+为什么非得融合：bm25 吃字面（"开盒"搜不到"开个盒"），向量吃语义（但会把
+"帮我开盒"和"开盒我不干"判成同一件事）。两边错的方向不一样，只留一路就一直错，
+融合才有机会救回来。RRF 只比名次不比分数，省掉调权重这个无底洞。
+"""
 from __future__ import annotations
 
 import sqlite3
 import time
 from typing import Any
 
+from . import vectors
 from .text import to_bigrams
+
+MODES = ("auto", "keyword", "vector", "hybrid")
+
+# 消息 id 和表情包 id 会撞车，融合时给表情包加一个大偏移，取回来再减掉
+MEME_OFF = 10**7
 
 
 # ---------------------------------------------------------------- FTS 检索
@@ -66,6 +77,28 @@ def _like_fallback(
     return [(int(r["id"]), 0.5) for r in rows]
 
 
+def _kw_messages(conn, query: str, limit: int) -> list[tuple[int, float]]:
+    hits = _search_fts(conn, "messages_fts", "msg_id", query, limit)
+    if not hits:
+        hits = _like_fallback(conn, "messages", "text", query, limit)
+    return hits
+
+
+def _kw_memes(conn, query: str, limit: int) -> list[tuple[int, float]]:
+    hits = _search_fts(conn, "memes_fts", "meme_id", query, limit)
+    if hits:
+        return hits
+    q = query.strip()
+    if not q:
+        return []
+    rows = conn.execute(
+        "SELECT id FROM memes WHERE caption LIKE ? OR keywords LIKE ? "
+        "ORDER BY id DESC LIMIT ?",
+        (f"%{q}%", f"%{q}%", limit),
+    ).fetchall()
+    return [(int(r["id"]), 0.5) for r in rows]
+
+
 # ---------------------------------------------------------------- RRF 融合
 
 def rrf_fuse(lists: list[list[tuple[int, float]]], k: int = 60) -> list[tuple[int, float]]:
@@ -80,23 +113,53 @@ def rrf_fuse(lists: list[list[tuple[int, float]]], k: int = 60) -> list[tuple[in
     return sorted(score.items(), key=lambda kv: kv[1], reverse=True)
 
 
-# ---------------------------------------------------------------- 对外接口
+# ---------------------------------------------------------------- 单路排名
 
-def search_messages(conn: sqlite3.Connection, query: str, limit: int = 10) -> list[dict[str, Any]]:
-    hits = _search_fts(conn, "messages_fts", "msg_id", query, limit * 3)
-    if not hits:
-        hits = _like_fallback(conn, "messages", "text", query, limit * 3)
-    if not hits:
-        return []
-    hits = hits[:limit]
-    ids = [h[0] for h in hits]
+def _mode_of(conn: sqlite3.Connection, mode: str) -> str:
+    """把 auto 落成具体模式；要向量但没向量时老实退回关键词。"""
+    mode = (mode or "auto").lower()
+    if mode not in MODES:
+        mode = "auto"
+    if mode == "auto":
+        return "hybrid" if vectors.available(conn) else "keyword"
+    if mode in ("vector", "hybrid") and not vectors.available(conn):
+        return "keyword"
+    return mode
+
+
+def _rank_messages(conn, query: str, mode: str, limit: int) -> list[tuple[int, float]]:
+    kw = _kw_messages(conn, query, limit * 3) if mode in ("keyword", "hybrid") else []
+    vec = vectors.search(conn, query, "message", limit * 3) if mode in ("vector", "hybrid") else []
+    if mode == "hybrid":
+        return rrf_fuse([kw, vec])[:limit]
+    return (kw if mode == "keyword" else vec)[:limit]
+
+
+def _rank_memes(conn, query: str, mode: str, limit: int) -> list[tuple[int, float]]:
+    kw = _kw_memes(conn, query, limit * 3) if mode in ("keyword", "hybrid") else []
+    vec = vectors.search(conn, query, "meme", limit * 3) if mode in ("vector", "hybrid") else []
+    if mode == "hybrid":
+        return rrf_fuse([kw, vec])[:limit]
+    return (kw if mode == "keyword" else vec)[:limit]
+
+
+# ---------------------------------------------------------------- 取正文
+
+def _rows_by_id(conn, table: str, cols: str, ids: list[int]) -> dict[int, sqlite3.Row]:
+    if not ids:
+        return {}
     marks = ",".join("?" * len(ids))
     rows = conn.execute(
-        f"SELECT id, ts, session, sender_name, kind, text FROM messages WHERE id IN ({marks})",
-        ids,
+        f"SELECT {cols} FROM {table} WHERE id IN ({marks})", ids
     ).fetchall()
-    by_id = {r["id"]: r for r in rows}
-    out = []
+    return {int(r["id"]): r for r in rows}
+
+
+def _hydrate_messages(conn, hits: list[tuple[int, float]]) -> list[dict[str, Any]]:
+    by_id = _rows_by_id(
+        conn, "messages", "id, ts, session, sender_name, kind, text", [h[0] for h in hits]
+    )
+    out: list[dict[str, Any]] = []
     for oid, sc in hits:
         r = by_id.get(oid)
         if not r:
@@ -116,30 +179,11 @@ def search_messages(conn: sqlite3.Connection, query: str, limit: int = 10) -> li
     return out
 
 
-def search_memes(conn: sqlite3.Connection, query: str, limit: int = 10) -> list[dict[str, Any]]:
-    hits = _search_fts(conn, "memes_fts", "meme_id", query, limit * 3)
-    if not hits:
-        # 表情包的 caption / keywords 分开两份，LIKE 兜底要查两列
-        q = query.strip()
-        rows = []
-        if q:
-            rows = conn.execute(
-                "SELECT id FROM memes WHERE caption LIKE ? OR keywords LIKE ? "
-                "ORDER BY id DESC LIMIT ?",
-                (f"%{q}%", f"%{q}%", limit * 3),
-            ).fetchall()
-        hits = [(int(r["id"]), 0.5) for r in rows]
-    if not hits:
-        return []
-    hits = hits[:limit]
-    ids = [h[0] for h in hits]
-    marks = ",".join("?" * len(ids))
-    rows = conn.execute(
-        f"SELECT id, pack, tag, caption, keywords, path, file_name FROM memes WHERE id IN ({marks})",
-        ids,
-    ).fetchall()
-    by_id = {r["id"]: r for r in rows}
-    out = []
+def _hydrate_memes(conn, hits: list[tuple[int, float]]) -> list[dict[str, Any]]:
+    by_id = _rows_by_id(
+        conn, "memes", "id, pack, tag, caption, keywords, path, file_name", [h[0] for h in hits]
+    )
+    out: list[dict[str, Any]] = []
     for oid, sc in hits:
         r = by_id.get(oid)
         if not r:
@@ -159,30 +203,85 @@ def search_memes(conn: sqlite3.Connection, query: str, limit: int = 10) -> list[
     return out
 
 
-def search_all(conn: sqlite3.Connection, query: str, kind: str = "all", limit: int = 10) -> dict[str, Any]:
+# ---------------------------------------------------------------- 对外接口
+
+def search_messages(
+    conn: sqlite3.Connection, query: str, limit: int = 10, mode: str = "auto"
+) -> list[dict[str, Any]]:
+    m = _mode_of(conn, mode)
+    return _hydrate_messages(conn, _rank_messages(conn, query, m, limit))
+
+
+def search_memes(
+    conn: sqlite3.Connection, query: str, limit: int = 10, mode: str = "auto"
+) -> list[dict[str, Any]]:
+    m = _mode_of(conn, mode)
+    return _hydrate_memes(conn, _rank_memes(conn, query, m, limit))
+
+
+def search_all(
+    conn: sqlite3.Connection,
+    query: str,
+    kind: str = "all",
+    limit: int = 10,
+    mode: str = "auto",
+) -> dict[str, Any]:
+    """所有召回支路放进**一次** RRF，融合完再截断。
+
+    早期版本是"消息融合一次、表情包融合一次，再拿两个结果融合一次"——
+    融合两遍会把只在向量里排第一的东西稀释掉（它只有 1/61 分，而两轮之间
+    还要和表情包抢名次）。现在四路平铺：关键词-消息、向量-消息、关键词-表情包、
+    向量-表情包，一次定名次。
+    """
     t0 = time.perf_counter()
     kind = (kind or "all").lower()
+    m = _mode_of(conn, mode)
+    want_msg = kind in ("all", "message", "messages")
+    want_meme = kind in ("all", "meme", "memes")
+    deep = max(limit * 4, 20)  # 每路多捞一点，融合后才有得选
 
-    msg_hits = search_messages(conn, query, limit) if kind in ("all", "message", "messages") else []
-    meme_hits = search_memes(conn, query, limit) if kind in ("all", "meme", "memes") else []
+    lists: list[list[tuple[int, float]]] = []
+    if want_msg:
+        if m in ("keyword", "hybrid"):
+            lists.append(_kw_messages(conn, query, deep))
+        if m in ("vector", "hybrid"):
+            lists.append(vectors.search(conn, query, "message", deep))
+    if want_meme:
+        if m in ("keyword", "hybrid"):
+            lists.append([(i + MEME_OFF, s) for i, s in _kw_memes(conn, query, deep)])
+        if m in ("vector", "hybrid"):
+            lists.append(
+                [(i + MEME_OFF, s) for i, s in vectors.search(conn, query, "meme", deep)]
+            )
 
-    if kind == "all" and msg_hits and meme_hits:
-        fused = rrf_fuse(
-            [
-                [(h["id"], h["score"]) for h in msg_hits],
-                [(h["id"] + 10**7, h["score"]) for h in meme_hits],
-            ]
-        )
-        pool = {h["id"]: h for h in msg_hits}
-        pool.update({h["id"] + 10**7: h for h in meme_hits})
-        hits = [pool[oid] for oid, _ in fused][:limit]
+    lists = [x for x in lists if x]
+    if not lists:
+        ranked: list[tuple[int, float]] = []
+    elif len(lists) == 1:
+        ranked = lists[0]
     else:
-        hits = (msg_hits + meme_hits)[:limit]
+        ranked = rrf_fuse(lists)
+    ranked = ranked[:limit]
+
+    msg_ids = [oid for oid, _ in ranked if oid < MEME_OFF]
+    meme_ids = [oid - MEME_OFF for oid, _ in ranked if oid >= MEME_OFF]
+    msg_rows = _hydrate_messages(conn, [(i, 0.0) for i in msg_ids]) if msg_ids else []
+    meme_rows = _hydrate_memes(conn, [(i, 0.0) for i in meme_ids]) if meme_ids else []
+    by_key = {(h["type"], h["id"]): h for h in msg_rows + meme_rows}
+
+    hits = []
+    for oid, sc in ranked:
+        h = by_key.get(("meme", oid - MEME_OFF)) if oid >= MEME_OFF else by_key.get(("message", oid))
+        if not h:
+            continue
+        h = {**h, "score": round(sc, 6)}
+        hits.append(h)
 
     took = (time.perf_counter() - t0) * 1000
     return {
         "query": query,
         "kind": kind,
+        "mode": m,
         "took_ms": round(took, 2),
         "count": len(hits),
         "hits": hits,
@@ -214,6 +313,7 @@ def stats(conn: sqlite3.Connection) -> dict[str, Any]:
         "messages": one("SELECT COUNT(*) FROM messages"),
         "memes": one("SELECT COUNT(*) FROM memes"),
         "vectors": one("SELECT COUNT(*) FROM vectors"),
+        "vector_ok": vectors.available(conn),
         "tags": tags,
         "senders": senders,
         "ts_from": span["a"] if span else "",

@@ -120,11 +120,12 @@ def api_search(
     q: str = Query("", description="搜索词"),
     kind: str = Query("all", description="all / message / meme"),
     limit: int = Query(10, ge=1, le=50),
+    mode: str = Query("auto", description="auto / keyword / vector / hybrid"),
 ):
     q = q.strip()
     if not q:
-        return {"query": "", "kind": kind, "took_ms": 0, "count": 0, "hits": []}
-    return search.search_all(conn(), q, kind, limit)
+        return {"query": "", "kind": kind, "mode": mode, "took_ms": 0, "count": 0, "hits": []}
+    return search.search_all(conn(), q, kind, limit, mode)
 
 
 @app.get("/api/stats")
