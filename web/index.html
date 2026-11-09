@@ -176,6 +176,7 @@ async function waitForServer(retries = 20) {
 async function loadStats() {
   try {
     const r = await fetch('/api/stats');
+    if (r.status === 401) { location.href = '/login'; return; }
     const s = await r.json();
     const tags = s.tags.map(t => t.tag).filter(Boolean).join(' / ');
     $meta.innerHTML =
@@ -223,6 +224,7 @@ async function doSearch() {
   try {
     const url = `/api/search?q=${encodeURIComponent(q)}&kind=${kind}&limit=20`;
     const r = await fetch(url);
+    if (r.status === 401) { location.href = '/login'; return; }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     render(data);

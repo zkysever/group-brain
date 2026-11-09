@@ -84,3 +84,49 @@ ssh ... 'vi /etc/cloudflared/config.yml && systemctl restart cloudflared'
    改成存「相对 `MEME_PACKS_DIR` 的路径」，本机和服务器共用同一个库文件。
 8. **图片发成 `application/octet-stream`**：Ubuntu 没装 `media-types` 时
    `mimetypes.guess_type('.png')` 返回 `None`。在 `app/main.py` 里自己兜一张小表。
+
+## 六、口令门（不用邮箱的那种）
+
+需求是「给一层验证码，别走邮箱」，所以没用 Cloudflare Access（那套必须邮箱收码），
+而是在应用里加了一道 80 行的门：`app/auth.py` + `app/main.py` 里的 middleware + `web/login.html`。
+
+**怎么工作**
+
+1. 任何请求先进 middleware：
+   - 公开路径 `/login`、`/api/health`、`/favicon.ico` → 直接放行
+   - 其余看 cookie `gb_gate` 是否合法 → 合法放行
+   - `/api/*` 不合法回 401 JSON；页面不合法 302 到 `/login`
+2. `POST /login` 校验密码，通过后发 cookie：`HttpOnly`、`SameSite=Lax`、
+   HTTPS 下带 `Secure`、有效期 7 天。
+3. cookie 内容不是随机串，是 `过期时间.HMAC-SHA256(过期时间)`——
+   改一个字节就失效；伪造得先拿到 SECRET。
+
+**密码和密钥放哪**
+
+`/opt/group-brain/.env`（`chmod 600`，只有 root 能读，**不进 git**）：
+
+```ini
+GATE_PASSWORD=你的口令
+GATE_SECRET=64位随机十六进制
+```
+
+systemd 通过 `EnvironmentFile=/opt/group-brain/.env` 读进去。
+`GATE_SECRET` 不改的话，服务重启用户不用重新输；改了等于把所有人踢下线。
+
+**日常操作**
+
+```bash
+# 改口令
+ssh ... 'vi /opt/group-brain/.env && systemctl restart group-brain'
+
+# 让所有人重新输（换 SECRET）
+ssh ... 'sed -i "s/^GATE_SECRET=.*/GATE_SECRET=$(openssl rand -hex 32)/" /opt/group-brain/.env && systemctl restart group-brain'
+
+# 自己想退出登录：浏览器打开 https://zkysever.com/logout
+```
+
+**防爆破**：同一 IP 十分钟内错 10 次就挡住（进程内存计数，重启清零）。
+真要抗大规模撞库，得把这层计数放到 Cloudflare 的 Rate Limiting 规则里。
+
+**注意**：这层门保护的是「谁能看内容」，不改变「内容在服务器上」这个事实。
+`.env` 泄露 = 门白装，所以它没进 git，也别贴到群里。

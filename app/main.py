@@ -1,19 +1,32 @@
-"""FastAPI 入口：网页 + 两个 JSON 接口。
+"""FastAPI 入口：网页 + 两个 JSON 接口 + 一道口令门。
 
 启动：python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+口令门：除了 /login、/api/health，所有路径都要带合法 cookie，否则
+  - 页面 → 302 到 /login
+  - /api/* → 401 JSON（前端收到就跳 /login）
 """
 from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
+from urllib.parse import parse_qs
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from . import db, search
+from . import auth, db, search
 from .config import MEME_PACKS_DIR, WEB_DIR
 
 app = FastAPI(title="group-brain", version="0.1.0")
+
+# 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
+PUBLIC = {"/login", "/api/health", "/favicon.ico"}
+
+_ERR_TEXT = {
+    "bad": "口令不对，再试一次。",
+    "too_many": "连错太多次了，等十分钟再来。",
+}
 
 # 别指望系统自带的 mime 表：Ubuntu 上没装 media-types 时 guess_type 认不出 .png，
 # 会把图片发成 application/octet-stream。这里自己兜一张小表。
@@ -34,6 +47,64 @@ def conn():
     if _conn is None:
         _conn = db.connect()
     return _conn
+
+
+@app.middleware("http")
+async def gate(request: Request, call_next):
+    """所有请求先过这道门；放行的两种：公开路径、cookie 合法。"""
+    path = request.url.path
+    if path in PUBLIC or auth.is_open(request.cookies.get(auth.COOKIE_NAME)):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "需要口令", "login": "/login"}, status_code=401)
+    return RedirectResponse("/login", status_code=302)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(err: str = ""):
+    page = WEB_DIR / "login.html"
+    if not page.exists():
+        raise HTTPException(500, "web/login.html 不见了")
+    msg = _ERR_TEXT.get(err, "")
+    block = f'<p class="err">{msg}</p>' if msg else ""
+    return page.read_text(encoding="utf-8").replace("{{ERR}}", block)
+
+
+@app.post("/login")
+async def login_submit(request: Request):
+    """表单解析用手写：只为这一处装 python-multipart 不值。"""
+    ip = request.client.host if request.client else "unknown"
+    if auth.too_many(ip):
+        return RedirectResponse("/login?err=too_many", status_code=303)
+
+    raw = (await request.body()).decode("utf-8", "replace")
+    pw = (parse_qs(raw).get("pw") or [""])[0]
+
+    if not auth.check_password(pw):
+        auth.record_fail(ip)
+        return RedirectResponse("/login?err=bad", status_code=303)
+
+    auth.clear_fails(ip)
+    resp = RedirectResponse("/", status_code=303)
+    # Cloudflare 会把协议改写，真实协议看 X-Forwarded-Proto
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    resp.set_cookie(
+        auth.COOKIE_NAME,
+        auth.issue_token(),
+        max_age=auth.MAX_AGE,
+        httponly=True,
+        secure=(scheme == "https"),
+        samesite="lax",
+        path="/",
+    )
+    return resp
+
+
+@app.get("/logout")
+def logout():
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(auth.COOKIE_NAME, path="/")
+    return resp
 
 
 @app.get("/", response_class=HTMLResponse)
