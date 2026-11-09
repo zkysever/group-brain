@@ -1,6 +1,6 @@
 # group-brain
 
-群聊记忆体 · v0.6
+群聊记忆体 · v0.7
 
 把 AstrBot 里攒下来的群聊记录 + 两套表情包，变成**一条能搜的索引**，
 再往上加一层「模型自己决定查不查」的 Agent。在线地址：**https://zkysever.com**
@@ -34,7 +34,7 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | Agent 评测（30 条，正确率 30/30，误触发 0/6） | ✅ `EVAL.md` 第七节 |
 | 口令门（HMAC cookie + 限速，不走邮箱） | ✅ v0.4 |
 | 部署：cloudflared 隧道 + systemd + 三端口 SSH | ✅ `docs/deploy.md` |
-| Web 管理面板（入库/重建索引） | ⬜ v0.7 |
+| Web 管理面板（重建索引 / 重导表情包 / 建向量 / 合并 WAL） | ✅ v0.7 |
 
 ---
 
@@ -52,6 +52,7 @@ group-brain/
 │  ├─ embeddings.py      bge-m3 接口
 │  ├─ agent.py           A2：三个工具 + 最多 3 轮的调用循环
 │  ├─ auth.py            口令门：HMAC cookie + 限速
+│  ├─ admin.py           管理面板后端：点按钮 = 跑一次脚本（单任务锁 + 抓日志）
 │  └─ main.py            FastAPI：页面 + 接口
 ├─ scripts/
 │  ├─ init_db.py         建表
@@ -61,11 +62,14 @@ group-brain/
 │  ├─ run_eval.py        检索评测（三种模式并排）
 │  ├─ run_agent_eval.py  Agent 评测（30 条）
 │  ├─ pick_queries.py    翻聊天记录，帮你想评测题
-│  └─ check_queries.py   评测集体检（JSONL 有没有写错）
+│  ├─ check_queries.py   评测集体检（JSONL 有没有写错）
+│  ├─ rebuild_fts.py     只重建关键词索引（不需要原始库）
+│  └─ db_maintenance.py  WAL 合并 / VACUUM
 ├─ web/
 │  ├─ index.html         搜索页（原生三件套，无框架）
 │  ├─ agent.html         Agent 页（带工具调用记录）
-│  └─ login.html         口令页
+│  ├─ login.html         口令页
+│  └─ admin.html        管理面板（轮询任务状态、看日志）
 ├─ docs/
 │  ├─ deploy.md          部署 + 事故复盘 + SSH 三端口
 │  ├─ agent.md           Agent 的设计与三个刻意限制
@@ -91,7 +95,29 @@ GET /api/meme/{id}                                     # 直接返回图片
 GET /api/agent?q=谁说过要吃鱼片                         # Agent 模式，返回答复 + 工具调用记录
 GET /api/health                                        # 会真查一次库，回 db_ok
 GET /login · POST /login · GET /logout                 # 口令门
+GET /admin · GET /api/admin/status · POST /api/admin/run?task=fts
+                                                       # 管理面板：fts/memes/vectors/wal/vacuum
 ```
+
+---
+
+## 管理面板（v0.7）
+
+打开 `https://zkysever.com/admin`，五个按钮，都是「点一下 = 在服务器上跑一次脚本」：
+
+| 按钮 | 跑什么 | 什么时候用 |
+|---|---|---|
+| 重建关键词索引 | `rebuild_fts.py` | 索引条数和消息条数对不上时（面板会标红） |
+| 重导表情包 | `import_memes.py` | 图库加了新图 |
+| 重建向量 | `build_vectors.py --force` | 换 embedding 模型、或向量条数不对。**会调接口、花钱** |
+| 合并 WAL | `db_maintenance.py` | `-wal` 文件涨到几十 MB |
+| VACUUM | `db_maintenance.py --vacuum` | 删过大量数据、想把库文件压回去 |
+
+三条设计上的取舍：
+1. **同一时间只跑一个任务**（全局锁）。两个 `build_vectors` 同时跑会互相覆盖向量表，还抢同一份 API 额度。
+2. **没有「重新导入聊天记录」按钮**，因为服务器上根本没有 AstrBot 原始库——数据是从本机导入后传上去的。
+   要更新聊天记录，只能在本机重跑 `import_messages.py`，再把 `data/group_brain.db` 传上去。
+3. **日志会截断到 8000 字符**。不看日志的批处理按钮等于黑箱，看全部日志又没必要。
 
 ---
 
@@ -112,13 +138,16 @@ bigram 把"大肥鱼"变成 `大肥 肥鱼`，搜"肥鱼"必中。
 python scripts/run_eval.py
 ```
 
-第一次跑出来的数字（我用 node:sqlite 复刻同一套 SQL 先验过）：
-**Recall@5 = 0.938，MRR = 0.823**（16 条查询，命中 15 条）。
+这套 48 条查询现在的成绩（`EVAL.md` 有完整对比表）：
 
-唯一的 miss 是「生气的时候摆手」——关键词里没有「摆手」，这种**换个说法**的查询
-就是向量检索要救的场子。你自己往 `eval/queries.jsonl` 里加查询时，
-故意加几条"意思一样但字不一样"的，基线会掉下来，那是好事，掉得越多 v0.4 越有东西可讲。
-**别改评测集去迁就结果**——那等于自己骗自己。
+| 模式 | Recall@5 | MRR | 平均延迟 |
+|---|---|---|---|
+| 纯关键词 | 0.938 | 0.899 | ~0ms |
+| 纯向量 | 0.958 | 0.880 | 530ms |
+| 关键词 + 向量（默认） | **1.000** | **0.939** | 520ms |
+
+1.000 是「这套题的天花板」不是「满分」，说明题目还不够难；520ms 是因为每次查询都要联网换一次向量，
+是真代价不是 bug。加查询时的原则不变：**别改评测集去迁就结果**——那等于自己骗自己。
 
 ---
 
@@ -136,7 +165,7 @@ python scripts/run_eval.py
 ## 下一步
 
 - **A3**：本地小模型路由（Ollama + qwen2.5:0.5b），100 条真实群消息 × 4 方案，比准确率 / 延迟 / 成本
-- **v0.7**：Web 管理面板（这大概是唯一还想加的功能，因为现在重新入库还得登服务器敲命令）
+- ~~v0.7：Web 管理面板~~ 已完成。还差的见下面两条
 - **评测加难**：现在 30 条 Agent case 已经 30/30 饱和，要加「不出现原词」「指代」「聚合」三类
 
 写代码之前先写 README——这条规矩是你自己定的。

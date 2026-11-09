@@ -16,10 +16,10 @@ from urllib.parse import parse_qs
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from . import agent, auth, db, search
+from . import admin, agent, auth, db, search
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.6.0")
+app = FastAPI(title="group-brain", version="0.7.0")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
 PUBLIC = {"/login", "/api/health", "/favicon.ico"}
@@ -192,6 +192,25 @@ def api_agent(
     if not q:
         return {"ok": False, "error": "问题不能为空", "answer": "", "trace": []}
     return agent.run(conn(), q, max_rounds=rounds)
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page() -> str:
+    """v0.7 管理面板。薄薄一层：点按钮 = 在服务器上跑一次 scripts/ 里的脚本。"""
+    page = WEB_DIR / "admin.html"
+    if not page.exists():
+        raise HTTPException(500, "web/admin.html 不见了")
+    return page.read_text(encoding="utf-8")
+
+
+@app.get("/api/admin/status")
+def api_admin_status():
+    return admin.state(conn())
+
+
+@app.post("/api/admin/run")
+def api_admin_run(task: str = Query(..., description="任务名，见 /api/admin/status 的 tasks")):
+    return admin.start(task)
 
 
 @app.get("/api/meme/{meme_id}")
