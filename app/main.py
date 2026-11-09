@@ -15,6 +15,16 @@ from .config import MEME_PACKS_DIR, WEB_DIR
 
 app = FastAPI(title="group-brain", version="0.1.0")
 
+# 别指望系统自带的 mime 表：Ubuntu 上没装 media-types 时 guess_type 认不出 .png，
+# 会把图片发成 application/octet-stream。这里自己兜一张小表。
+_MEDIA = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
 _conn = None
 
 
@@ -61,7 +71,7 @@ def api_meme(meme_id: int):
         p = MEME_PACKS_DIR / p
     if not p.exists():
         raise HTTPException(404, f"图片文件不在: {p}")
-    media, _ = mimetypes.guess_type(p.name)
+    media = _MEDIA.get(p.suffix.lower()) or mimetypes.guess_type(p.name)[0]
     return FileResponse(p, media_type=media or "application/octet-stream")
 
 
