@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import mimetypes
+import threading
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -18,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from . import auth, db, search
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.1.0")
+app = FastAPI(title="group-brain", version="0.5.0")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
 PUBLIC = {"/login", "/api/health", "/favicon.ico"}
@@ -38,15 +39,23 @@ _MEDIA = {
     ".gif": "image/gif",
 }
 
-_conn = None
+_local = threading.local()
 
 
 def conn():
-    """一个进程一条连接，够用了。真并发上来了再换连接池。"""
-    global _conn
-    if _conn is None:
-        _conn = db.connect()
-    return _conn
+    """每个线程一条连接。
+
+    这里踩过一次坑：原来用一个进程级全局连接，本地单线程手测一切正常，
+    一上线就集体 500 —— FastAPI 的同步接口跑在线程池里，同一条 sqlite
+    连接被不同线程拿去用，直接抛
+    "SQLite objects created in a thread can only be used in that same thread"。
+    改成 thread-local 之后每个工作线程各用各的，也就不需要连接池了。
+    """
+    c = getattr(_local, "conn", None)
+    if c is None:
+        c = db.connect()
+        _local.conn = c
+    return c
 
 
 @app.middleware("http")
@@ -149,4 +158,25 @@ def api_meme(meme_id: int):
 
 @app.get("/api/health")
 def api_health():
-    return {"ok": True, "version": app.version}
+    """探活要看两件事：进程活着，库能读。
+
+    早期只回 {"ok": true}，结果库炸了它还报健康，白瞎——自己骗自己。
+    现在把库能不能读、有多少条数据一起报出来。
+    """
+    try:
+        s = search.stats(conn())
+        return {
+            "ok": True,
+            "version": app.version,
+            "db_ok": True,
+            "messages": s["messages"],
+            "memes": s["memes"],
+            "vectors": s["vectors"],
+            "vector_ok": s["vector_ok"],
+        }
+    except Exception as e:  # 库坏了也要能探活，否则监控永远只看到 502
+        return JSONResponse(
+            {"ok": True, "version": app.version, "db_ok": False,
+             "error": f"{type(e).__name__}: {e}"},
+            status_code=200,
+        )

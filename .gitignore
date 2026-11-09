@@ -7,4 +7,7 @@ data/group_brain.db-shm
 data/raw/*.db
 data/raw/*.db-wal
 data/raw/*.db-shm
+# 口令门的签名密钥：本机自动生成，绝不能进 git
+data/.gate_secret
+.env
 .DS_Store

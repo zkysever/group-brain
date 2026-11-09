@@ -130,3 +130,68 @@ ssh ... 'sed -i "s/^GATE_SECRET=.*/GATE_SECRET=$(openssl rand -hex 32)/" /opt/gr
 
 **注意**：这层门保护的是「谁能看内容」，不改变「内容在服务器上」这个事实。
 `.env` 泄露 = 门白装，所以它没进 git，也别贴到群里。
+
+---
+
+# 七、线上 500 事故复盘（2026-11-09 晚，v0.5 上线时）
+
+**症状**：页面打得开、口令门正常、`/api/health` 回 200，但 `/api/stats`、`/api/search`、`/api/meme/*` 全部 500。
+`journalctl -u group-brain` 里只有一行关键：
+
+```
+sqlite3.ProgrammingError: SQLite objects created in a thread can only be used in that same thread.
+The object was created in thread id 139664937698880 and this is thread id 139664911472192.
+```
+
+**根因**：`app/main.py` 里原来是一个进程级全局连接（`_conn`）。
+FastAPI 的同步接口跑在线程池里，第二个工作线程拿第一条连接用，sqlite 直接拒绝。
+本地手测全是单线程，一路绿灯；一上公网并发就集体崩。
+
+**修法**：改成 thread-local，每个工作线程各开一条：
+
+```python
+_local = threading.local()
+
+def conn():
+    c = getattr(_local, "conn", None)
+    if c is None:
+        c = db.connect()
+        _local.conn = c
+    return c
+```
+
+**验证方式**（这一步比修法本身重要）：本地起了服务，用 20 个线程各发 5 个请求（共 100 个，
+混着 `/api/search`、`/api/stats`、`/api/meme`），要求 100/100 都是 200。
+
+**顺带修的两件事**：
+1. `/api/health` 以前只回 `{"ok": true}` —— 库炸了它照样报健康，等于自己骗自己。
+   现在会真的去查一次库，回 `db_ok` / `messages` / `memes` / `vectors`，库坏就 `db_ok: false`。
+2. 版本号从 0.1.0 提到 0.5.0，页面角标同步。
+
+**教训**：
+- 「本地跑通了」只等于「单线程跑通了」。上线前必须用并发压一遍。
+- 探活接口不碰数据库，就不能证明服务是好的。
+- 排查时先看 `journalctl`，不要靠猜。这次的 traceback 一次就把范围缩到一行代码。
+
+# 八、连不上服务器的排查顺序（本机网络封 22 端口时）
+
+2026-11-09 晚上遇到一次：`scp` 全部 `Connection closed`，`ssh` 报 `Connection timed out`。
+服务器其实好好的（网页一直在线）——是**本机所在网络封了出站 22 端口**。
+
+三步定位，别一上来就怀疑服务器：
+
+```powershell
+# 1. 服务器还活着吗？走 443 看网页
+curl.exe -s -o NUL -w "%{http_code}`n" https://zkysever.com/api/health
+
+# 2. 本机能不能出 22？拿 GitHub 当对照组（22 和 443 都该通）
+Test-NetConnection github.com -Port 22 -InformationLevel Quiet
+Test-NetConnection github.com -Port 443 -InformationLevel Quiet
+
+# 3. 只有我们的机器不通、GitHub 的 22 也不通 → 是本地网络，不是服务器
+Test-NetConnection 118.178.109.54 -Port 22 -InformationLevel Quiet
+```
+
+判定：
+- 第 2 步 22=False、443=True → **本地网络封了 22**，换网络（手机热点）即可，别改服务器。
+- 第 2 步都正常、只有第 3 步不通 → 才轮到怀疑阿里云安全组 / 云盾拦截 / sshd 挂了。
