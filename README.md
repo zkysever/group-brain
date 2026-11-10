@@ -95,7 +95,7 @@ GET /api/search?q=大肥鱼&kind=all&limit=10&mode=auto   # auto/keyword/vector/
 GET /api/context?id=8&before=4&after=4                 # 记忆回放：前后几条
 GET /api/stats
 GET /api/meme/{id}                                     # 直接返回图片
-GET /api/agent?q=谁说过要吃鱼片                         # Agent 模式，返回答复 + 工具调用记录
+GET /api/agent?q=谁说过要吃鱼片&history=[...]           # Agent 模式；history 是刚才的对话（JSON），用来解「刚才那句」
 GET /api/health                                        # 会真查一次库，回 db_ok
 GET /login · POST /login · GET /logout                 # 口令门
 GET /admin · GET /api/admin/status · POST /api/admin/run?task=fts
@@ -170,7 +170,7 @@ python scripts/run_eval.py
 - ~~A3：本地小模型路由~~ 做了一半：四个方案比完了（`docs/routing.md`），但用的是免费云小模型不是本地 Ollama
   （GitHub 下载 0 字节/秒、镜像 147 KB/s，1.85 GB 要 3.5 小时，不值当）。本地部署留到有 GPU 空的时候再说
 - ~~v0.7：Web 管理面板~~ 已完成。还差的见下面两条
-- **接口带上下文**：`/api/agent` 加 `history` 参数——指代那 3 条错题唯一真正的解法，不花钱
+- ~~**接口带上下文**：`/api/agent` 加 `history` 参数~~ —— 已做（A2 v0.2）：上下文题 0/6 → 6/6，见 `docs/agent.md`
 - **规则前置**：`agent.run()` 前加一层 `rule_route()`，规则有把握就跳过「决定调不调」那一次模型往返
 
 写代码之前先写 README——这条规矩是你自己定的。
