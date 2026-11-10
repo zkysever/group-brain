@@ -29,6 +29,8 @@ from . import search
 MAX_ROUNDS = 3          # 超过就停手：再转下去只是在烧 token
 HIT_CHARS = 120         # 单条结果截断长度，防止工具输出把上下文顶爆
 MAX_HITS = 5
+HISTORY_TURNS = 3       # 只带最近 3 轮对话：再往前带，token 花在模型记不住的地方
+HISTORY_CHARS = 200     # 单条历史截断
 
 SYSTEM = """你是「群聊记忆体」的助手，只能通过工具查下面这份数据：
 一个 QQ 群的真实聊天记录，和一套表情包图库。
@@ -38,7 +40,10 @@ SYSTEM = """你是「群聊记忆体」的助手，只能通过工具查下面�
 2. 引用群聊内容时尽量贴原话，别改写成书面语。
 3. 找不到就直接说找不到，不要硬凑。
 4. 回答用中文，简短，三句以内为佳。
-5. 只是打个招呼、问个好，不需要调用任何工具。"""
+5. 只是打个招呼、问个好，不需要调用任何工具。
+6. 如果上面有「刚才的对话」，那么用户说的「刚才那句」「上一条」「他」指的就是它——
+   能从上文直接回答的就直接回答，不必再查；上文里真的找不到对应物时，
+   直接反问「你说的是哪句」，**不要瞎猜一个去搜**。"""
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -173,16 +178,50 @@ def _run_tool(name: str, args: dict[str, Any], conn) -> tuple[str, dict[str, Any
     return json.dumps(payload, ensure_ascii=False), note
 
 
-def run(conn, question: str, max_rounds: int = MAX_ROUNDS) -> dict[str, Any]:
-    """跑一轮「问 → 模型决定调工具 → 拿结果再回答」，最多 max_rounds 轮工具调用。"""
+def _norm_history(history: Any) -> list[dict[str, str]]:
+    """把外面传进来的「刚才的对话」洗成干净的 messages 片段。
+
+    为什么要洗：这东西来自 HTTP 参数，可能是任意 JSON。
+    只认 {"role", "content"} 两个字段，role 只允许 user/assistant，
+    content 超长直接截断——不然一个特制的输入就能把我的上下文撑爆、或者冒充 system。
+    """
+    if not history:
+        return []
+    if isinstance(history, str):
+        try:
+            history = json.loads(history)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(history, list):
+        return []
+    out: list[dict[str, str]] = []
+    for m in history[-HISTORY_TURNS * 2:]:
+        if not isinstance(m, dict):
+            continue
+        role = m.get("role")
+        content = str(m.get("content") or "").strip()
+        if role not in ("user", "assistant") or not content:
+            continue
+        out.append({"role": role, "content": content[:HISTORY_CHARS]})
+    return out
+
+
+def run(conn, question: str, max_rounds: int = MAX_ROUNDS, history: Any = None) -> dict[str, Any]:
+    """跑一轮「问 → 模型决定调工具 → 拿结果再回答」，最多 max_rounds 轮工具调用。
+
+    history：刚才的对话，用来解决「刚才那句」「上一条」这类指代。
+    单轮接口拿不到上下文时，模型只能瞎猜；给了 history 才有东西可指。
+    """
     if not available():
         return {"ok": False, "error": "没配 DEEPSEEK_API_KEY，A2 用不了", "answer": "", "trace": []}
 
     t0 = time.perf_counter()
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM},
-        {"role": "user", "content": question},
-    ]
+    past = _norm_history(history)
+    messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM}]
+    if past:
+        messages.append({"role": "system", "content": "下面是刚才的对话（「刚才那句」「上一条」指的是它）："})
+        messages.extend(past)
+    messages.append({"role": "user", "content": question})
     trace: list[dict[str, Any]] = []
     answer = ""
 
@@ -240,4 +279,5 @@ def run(conn, question: str, max_rounds: int = MAX_ROUNDS) -> dict[str, Any]:
         "rounds": len([n for n in names if n != "STOP"]),
         "took_ms": took,
         "model": cfg.DEEPSEEK_MODEL,
+        "history": len(past),
     }

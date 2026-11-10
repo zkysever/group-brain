@@ -164,6 +164,16 @@ function renderTrace(trace) {
   return card;
 }
 
+// 最近几轮对话。存在的唯一理由是：「刚才那句话是谁说的」「上一条图谁发的」
+// 这类问句，单轮接口里根本没有可指的东西，模型只能反问或者瞎猜。
+const HISTORY = [];
+const HISTORY_TURNS = 3;
+
+function historyParam() {
+  const msgs = HISTORY.slice(-HISTORY_TURNS * 2);
+  return msgs.length ? '&history=' + encodeURIComponent(JSON.stringify(msgs)) : '';
+}
+
 async function ask() {
   const q = qEl.value.trim();
   if (!q) return;
@@ -174,7 +184,7 @@ async function ask() {
   outEl.appendChild(loading);
 
   try {
-    const r = await fetch('/api/agent?q=' + encodeURIComponent(q));
+    const r = await fetch('/api/agent?q=' + encodeURIComponent(q) + historyParam());
     if (r.status === 401) { location.href = '/login'; return; }
     const d = await r.json();
 
@@ -189,9 +199,16 @@ async function ask() {
     const ans = el('div', 'card');
     ans.appendChild(el('h2', null, '回答'));
     ans.appendChild(el('div', 'answer', d.answer || '（空的）'));
-    ans.appendChild(el('div', 'meta', '模型 ' + d.model + ' · ' + d.rounds + ' 轮工具 · 一共 ' + d.took_ms + 'ms'));
+    const pairs = Math.floor(HISTORY.length / 2);
+    ans.appendChild(el('div', 'meta', '模型 ' + d.model + ' · ' + d.rounds + ' 轮工具 · 一共 ' + d.took_ms + 'ms'
+      + ' · 带了 ' + pairs + ' 轮上下文'));
     outEl.appendChild(ans);
     outEl.appendChild(renderTrace(d.trace));
+
+    // 只记住「问了什么 / 答了什么」，工具轨迹不往回带（带着只会让上下文变贵、变乱）
+    HISTORY.push({ role: 'user', content: q });
+    HISTORY.push({ role: 'assistant', content: d.answer || '' });
+    while (HISTORY.length > HISTORY_TURNS * 2) HISTORY.shift();
   } catch (e) {
     outEl.innerHTML = '';
     const c = el('div', 'card');

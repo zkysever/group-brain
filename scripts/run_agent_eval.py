@@ -25,12 +25,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app import agent, db  # noqa: E402
 from app.config import EVAL_DIR  # noqa: E402
 
-CASES = EVAL_DIR / "agent_cases.jsonl"
+CASES = EVAL_DIR / "agent_cases.jsonl"  # 默认；--cases 可以换一份
 
 
-def load_cases(limit: int | None, grep: str = "") -> list[dict]:
+def load_cases(limit: int | None, grep: str = "", path: Path | None = None) -> list[dict]:
     rows = []
-    for i, line in enumerate(CASES.read_text(encoding="utf-8").splitlines(), 1):
+    for i, line in enumerate((path or CASES).read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -44,7 +44,14 @@ def load_cases(limit: int | None, grep: str = "") -> list[dict]:
 
 
 def judge(case: dict, result: dict) -> tuple[bool, str]:
-    """返回 (这条算不算对, 一句话原因)。"""
+    """返回 (这条算不算对, 一句话原因)。
+
+    两件事分开判：
+      1. 工具集合对不对（该调的调了、不该调的住手了）
+      2. 如果 case 里写了 expect_any，回答里必须出现其中**任意一个**关键词。
+         因为「工具集合对了」不等于「答对了」：模型可以一个工具都不调，
+         然后回一句「我不知道你在说什么」——工具层面完全正确，答案是废的。
+    """
     want = list(case.get("tools") or [])
     got = [t for t in (result.get("tool_calls") or []) if t != "STOP"]
     max_calls = int(case.get("max_calls", len(want)))
@@ -61,6 +68,12 @@ def judge(case: dict, result: dict) -> tuple[bool, str]:
         return False, "多调了 " + "/".join(extra)
     if len(got) > max_calls:
         return False, f"调了 {len(got)} 次，超过上限 {max_calls}"
+
+    expect_any = case.get("expect_any") or []
+    if expect_any:
+        answer = str(result.get("answer") or "")
+        if not any(k in answer for k in expect_any):
+            return False, "答非所问（回答里没出现 " + " / ".join(expect_any[:3]) + "）"
     return True, "OK"
 
 
@@ -69,19 +82,22 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--grep", default="", help="只跑问题里含这个子串的）")
     ap.add_argument("--slow", type=float, default=0.3)
+    ap.add_argument("--cases", default="", help="换一份 case 文件，比如 eval/agent_history_cases.jsonl")
+    ap.add_argument("--no-history", action="store_true", help="忽略 case 里的 history，用来做「不给上下文」的对照")
     args = ap.parse_args()
 
     if not agent.available():
         raise SystemExit("没配 DEEPSEEK_API_KEY，跑不了")
 
-    cases = load_cases(args.limit or None, args.grep)
+    cases = load_cases(args.limit or None, args.grep, Path(args.cases) if args.cases else None)
     conn = db.connect()
     rows = []
     t0 = time.time()
 
     print(f"跑 {len(cases)} 条（模型 {agent.cfg.DEEPSEEK_MODEL}）\n")
     for i, c in enumerate(cases, 1):
-        r = agent.run(conn, c["q"])
+        hist = None if args.no_history else c.get("history")
+        r = agent.run(conn, c["q"], history=hist)
         ok, why = judge(c, r)
         rows.append((c, r, ok, why))
         mark = "OK " if ok else "XX "

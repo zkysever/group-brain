@@ -33,7 +33,7 @@
 {"q": "有人要剁我尾巴？", "tools": ["search_memory"], "max_calls": 2, "note": "难①原话「给你尾巴剁了等下」"}
 {"q": "群里有人问过原神的事吗", "tools": ["search_memory"], "max_calls": 2, "note": "难①原话是「原神角色谁脚最臭」"}
 {"q": "刚才那句话是谁说的", "tools": [], "max_calls": 0, "note": "难②单轮接口没有上下文，正确行为是反问「哪句」，不是瞎搜"}
-{"q": "他昨天不是说要去睡觉了吗", "tools": ["search_memory", "get_time"], "max_calls": 3, "note": "难②③「他」指不明白但「昨天+睡觉」有线索；要判断「昨天」必须先知道今天几号，所以 get_time 也算对（这条是我一开始标错的）"}
+{"q":"他昨天不是说要去睡觉了吗","tools":[],"note":"单轮接口下正确行为是反问「指谁」，不是硬搜——这条我以前标成 [search_memory,get_time]，是我第三次标错。它真正该测的版本在 agent_history_cases.jsonl 里","max_calls":0}
 {"q": "上一条图是谁发的", "tools": [], "max_calls": 0, "note": "难②图片消息在库里只有 [Image] 占位，查不出是谁，硬搜只会编"}
 {"q": "那个骂我傻的人叫啥", "tools": ["search_memory"], "max_calls": 2, "note": "难②「那个…的人」是典型指代，但关键词明确"}
 {"q": "群里一共几个人说过话", "tools": ["search_memory"], "max_calls": 2, "note": "难④聚合题，要人去重数，检索只能给样本"}

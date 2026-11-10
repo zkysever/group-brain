@@ -186,12 +186,17 @@ def agent_page() -> str:
 def api_agent(
     q: str = Query("", description="用户的一句话"),
     rounds: int = Query(3, ge=0, le=5, description="最多允许几轮工具调用"),
+    history: str = Query("", description='刚才的对话，JSON： [{"role":"user","content":"…"}]'),
 ):
-    """A2：把检索当工具交给模型，由它自己决定调不调、调哪个。"""
+    """A2：把检索当工具交给模型，由它自己决定调不调、调哪个。
+
+    history 是给「刚才那句话是谁说的」「上一条图谁发的」这类指代用的。
+    不传就等于单轮问答，指代只能靠模型瞎猜——所以前端每次都会带上最近几轮。
+    """
     q = q.strip()
     if not q:
         return {"ok": False, "error": "问题不能为空", "answer": "", "trace": []}
-    return agent.run(conn(), q, max_rounds=rounds)
+    return agent.run(conn(), q, max_rounds=rounds, history=history)
 
 
 @app.get("/admin", response_class=HTMLResponse)
