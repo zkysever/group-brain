@@ -64,6 +64,7 @@ group-brain/
 │  ├─ pick_queries.py    翻聊天记录，帮你想评测题
 │  ├─ check_queries.py   评测集体检（JSONL 有没有写错）
 │  ├─ rebuild_fts.py     只重建关键词索引（不需要原始库）
+│  ├─ bench_routing.py   路由实验：规则 / 小模型 / 大模型 / 混合 四方案对比
 │  └─ db_maintenance.py  WAL 合并 / VACUUM
 ├─ web/
 │  ├─ index.html         搜索页（原生三件套，无框架）
@@ -73,13 +74,15 @@ group-brain/
 ├─ docs/
 │  ├─ deploy.md          部署 + 事故复盘 + SSH 三端口
 │  ├─ agent.md           Agent 的设计与三个刻意限制
+│  ├─ routing.md         路由实验：20 行正则凭什么和大模型打平
 │  └─ cloudflare.md      域名与 NS
 ├─ data/
 │  ├─ raw/               ← AstrBot 数据库副本放这儿
 │  └─ group_brain.db     运行时生成的索引
 └─ eval/
    ├─ queries.jsonl      检索评测集（48 条）
-   ├─ agent_cases.jsonl  Agent 评测集（30 条）
+   ├─ agent_cases.jsonl  Agent 评测集（50 条）
+   ├─ agent_holdout.jsonl 留出集（10 条，写完规则之后才写的）
    └─ 怎么补评测集.md     给未来的自己看的操作手册
 ```
 
@@ -164,8 +167,10 @@ python scripts/run_eval.py
 
 ## 下一步
 
-- **A3**：本地小模型路由（Ollama + qwen2.5:0.5b），100 条真实群消息 × 4 方案，比准确率 / 延迟 / 成本
+- ~~A3：本地小模型路由~~ 做了一半：四个方案比完了（`docs/routing.md`），但用的是免费云小模型不是本地 Ollama
+  （GitHub 下载 0 字节/秒、镜像 147 KB/s，1.85 GB 要 3.5 小时，不值当）。本地部署留到有 GPU 空的时候再说
 - ~~v0.7：Web 管理面板~~ 已完成。还差的见下面两条
-- **评测加难**：现在 30 条 Agent case 已经 30/30 饱和，要加「不出现原词」「指代」「聚合」三类
+- **接口带上下文**：`/api/agent` 加 `history` 参数——指代那 3 条错题唯一真正的解法，不花钱
+- **规则前置**：`agent.run()` 前加一层 `rule_route()`，规则有把握就跳过「决定调不调」那一次模型往返
 
 写代码之前先写 README——这条规矩是你自己定的。

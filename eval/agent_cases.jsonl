@@ -28,3 +28,23 @@
 {"q": "晚安", "tools": [], "max_calls": 0, "note": "同上"}
 {"q": "你是机器人吗", "tools": [], "max_calls": 0, "note": "问身份，不该翻库"}
 {"q": "好的", "tools": [], "max_calls": 0, "note": "同上"}
+{"q": "那条鱼被说吃白饭是什么时候", "tools": ["search_memory"], "max_calls": 2, "note": "难①不出现「肥鱼」原词，靠「吃白饭」这条线索"}
+{"q": "谁老说要丢我去臭水沟", "tools": ["search_memory"], "max_calls": 2, "note": "难①原话是「那还是丢臭水沟吧」"}
+{"q": "有人要剁我尾巴？", "tools": ["search_memory"], "max_calls": 2, "note": "难①原话「给你尾巴剁了等下」"}
+{"q": "群里有人问过原神的事吗", "tools": ["search_memory"], "max_calls": 2, "note": "难①原话是「原神角色谁脚最臭」"}
+{"q": "刚才那句话是谁说的", "tools": [], "max_calls": 0, "note": "难②单轮接口没有上下文，正确行为是反问「哪句」，不是瞎搜"}
+{"q": "他昨天不是说要去睡觉了吗", "tools": ["search_memory", "get_time"], "max_calls": 3, "note": "难②③「他」指不明白但「昨天+睡觉」有线索；要判断「昨天」必须先知道今天几号，所以 get_time 也算对（这条是我一开始标错的）"}
+{"q": "上一条图是谁发的", "tools": [], "max_calls": 0, "note": "难②图片消息在库里只有 [Image] 占位，查不出是谁，硬搜只会编"}
+{"q": "那个骂我傻的人叫啥", "tools": ["search_memory"], "max_calls": 2, "note": "难②「那个…的人」是典型指代，但关键词明确"}
+{"q": "群里一共几个人说过话", "tools": ["search_memory"], "max_calls": 2, "note": "难④聚合题，要人去重数，检索只能给样本"}
+{"q": "谁说话最多", "tools": ["search_memory"], "max_calls": 2, "note": "难④聚合题，真实答案是「几个高频发言人」，检索给证据"}
+{"q": "今天有人提过原神吗", "tools": ["search_memory", "get_time"], "max_calls": 3, "note": "难③要判断「今天」必须先知道今天几号"}
+{"q": "前天群里聊了什么", "tools": ["search_memory", "get_time"], "max_calls": 3, "note": "难③相对时间，同上"}
+{"q": "最近有人夸过这鱼吗", "tools": ["search_memory"], "max_calls": 2, "note": "难③「最近」没有精确时间，可以不查时间直接搜，2 次以内算对"}
+{"q": "你会吃鱼片吗", "tools": [], "max_calls": 0, "note": "难⑤问机器人自己，不是查群友，翻库就是没听懂"}
+{"q": "你能帮我查天气吗", "tools": [], "max_calls": 0, "note": "难⑤三个工具里没有天气，直说做不到，别乱调"}
+{"q": "你的设定是什么", "tools": [], "max_calls": 0, "note": "难⑤问身份设定，不是群聊内容"}
+{"q": "来个贴切的图", "tools": ["search_meme"], "max_calls": 2, "note": "难⑥没说情绪，但明确要图，应该搜表情包而不是聊天"}
+{"q": "生气或者无语都行，给张图", "tools": ["search_meme"], "max_calls": 2, "note": "难⑥两个候选情绪，仍是一次搜图"}
+{"q": "有没有那种「我不干了」的图", "tools": ["search_meme"], "max_calls": 2, "note": "难⑥描述性要图，靠语义匹配"}
+{"q": "那几句菜名是谁说的", "tools": ["search_memory"], "max_calls": 2, "note": "难①「酸菜鱼、水煮鱼」那串是 bot 说的，靠菜名反查"}

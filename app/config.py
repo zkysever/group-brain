@@ -47,8 +47,13 @@ def _read_secret(env_name: str, file_name: str) -> str:
 
 
 SILICONFLOW_KEY = _read_secret("SILICONFLOW_API_KEY", "siliconflow-api-key.txt")
+SILICONFLOW_URL = "https://api.siliconflow.cn/v1/chat/completions"
 EMBEDDING_MODEL = "BAAI/bge-m3"
 EMBEDDING_DIM = 1024
+
+# A3 路由实验用：免费池里的小模型（0 元，但排队、能力弱）。
+# 本机另测过 0.5B / glm-4-9b 都不可用（Model does not exist / Model disabled）。
+SMALL_MODEL = os.environ.get("SMALL_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 
 # A2 用：DeepSeek 的对话模型（function calling）
 DEEPSEEK_KEY = _read_secret("DEEPSEEK_API_KEY", "deepseek-api-key.txt")

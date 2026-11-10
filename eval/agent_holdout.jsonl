@@ -1,0 +1,10 @@
+{"q": "鱼片是啥时候说的", "tools": ["search_memory"], "max_calls": 2, "note": "留出集：问「什么时候说的」只要翻记录，不必查今天几号"}
+{"q": "肥鱼被谁骂了", "tools": ["search_memory"], "max_calls": 2, "note": "留出集：有「吃白饭」「你才傻」这类"}
+{"q": "来个无语的图", "tools": ["search_meme"], "max_calls": 2, "note": "留出集：confused 那 10 张"}
+{"q": "现在几点", "tools": ["get_time"], "max_calls": 1, "note": "留出集：纯问时间"}
+{"q": "有人在群里发过小米的截图吗", "tools": ["search_memory"], "max_calls": 2, "note": "留出集：澎湃4那条附近"}
+{"q": "这鱼到底会干嘛", "tools": [], "max_calls": 0, "note": "留出集：问机器人能力，翻库没用"}
+{"q": "澎湃4那个是谁问的", "tools": ["search_memory"], "max_calls": 2, "note": "留出集：「那个」指代但线索明确"}
+{"q": "我想看白饭那张图", "tools": ["search_meme"], "max_calls": 2, "note": "留出集：dafeiyu-learned 里那张「现在我是大肥鱼了」"}
+{"q": "前天晚上有人聊天吗", "tools": ["search_memory", "get_time"], "max_calls": 3, "note": "留出集：相对时间，两个工具都要"}
+{"q": "谢谢鱼", "tools": [], "max_calls": 0, "note": "留出集：寒暄"}
