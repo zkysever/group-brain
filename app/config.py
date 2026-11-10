@@ -7,7 +7,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
-DB_PATH = DATA_DIR / "group_brain.db"
+# GB_DB 可以让数据库换个位置：CI 上跑自检用临时库（不碰真数据），
+# 平时不设这个变量，就是 data/group_brain.db。
+DB_PATH = Path(os.environ.get("GB_DB") or (DATA_DIR / "group_brain.db"))
 WEB_DIR = ROOT / "web"
 EVAL_DIR = ROOT / "eval"
 

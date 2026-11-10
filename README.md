@@ -68,6 +68,9 @@ group-brain/
 │  ├─ rebuild_fts.py     只重建关键词索引（不需要原始库）
 │  ├─ gen_report.py      生成周报（--week 2026-W46 / last / --dry）
 │  ├─ bench_routing.py   路由实验：规则 / 小模型 / 大模型 / 混合 四方案对比
+│  ├─ backup_db.py       备份数据库（sqlite3 backup API，带 WAL 也一致）+ 保留最近 N 份
+│  ├─ pull_backup.ps1    把服务器上最新备份拉到本机（备份不能和库放同一块盘）
+│  ├─ selftest.py        CI 用的自检：临时库跑一遍主链路，不碰你的数据
 │  └─ db_maintenance.py  WAL 合并 / VACUUM
 ├─ web/
 │  ├─ index.html         搜索页（原生三件套，无框架）
@@ -91,6 +94,9 @@ group-brain/
    ├─ agent_history_cases.jsonl 上下文题（6 条，带 history）
    ├─ agent_holdout.jsonl 留出集（10 条，写完规则之后才写的）
    └─ 怎么补评测集.md     给未来的自己看的操作手册
+
+.github/workflows/ci.yml  每次 push：装依赖 → 语法 → 评测集格式 → 自检
+LICENSE                   MIT
 ```
 
 ---
@@ -154,6 +160,39 @@ POST /api/coach?week=2026-W46                          # 生成/重算周报，�
 
 ---
 
+## 工程收尾：CI、依赖、备份
+
+一个「能跑的网站」和一个「别人敢用的仓库」之间差着四件小事，这几件都在 2026-11-10 补齐了：
+
+**1. CI（`.github/workflows/ci.yml`）**
+每次 push 自动跑四步：装依赖 → `compileall` 语法检查 → 三份评测集的格式检查 → `scripts/selftest.py` 自检。
+
+它**不能**替代真正的评测——那需要真实群聊库和 API key，CI 上都没有。它能拦的是另一类事故：改了 SQL 忘了迁移、改了函数签名调用方没跟、评测集里混进一个全角引号。这些都曾经在本地坑过我一次以上。
+
+`selftest.py` 的做法是开一个临时库（`GB_DB=/tmp/xxx.db`），把「建表 → 写入 → 关键词检索 → 混合检索退回 → 取上下文 → 统计」走一遍。**不碰真实数据**，所以可以放心在 CI 上跑。
+
+**2. 依赖不再「随便升」（`requirements.txt`）**
+以前写 `fastapi>=0.110`，意思是「以后永远升到最新」——哪天上游发个 breaking change，`systemctl restart` 之后就再也起不来，而且你从报错里看不出是自己没锁版本。现在用 `~=0.162.0` 这种「锁小版本、放开补丁」的写法，并且注明了**本机 3.12 / 服务器 3.10 不能钉死到同一个 numpy 版本**。
+
+**3. LICENSE（MIT）**
+仓库是 Public 的，但没许可证的话严格讲别人没有使用和修改的权利。「公开可见」不等于「可以拿去用」。
+
+**4. 备份（每天自动 + 定期拉回本机）**
+- 服务器上 `crontab` 每天 03:30 跑 `backup_db.py`，写到 `data/backups/`，留最近 14 份。
+- 用的是 `sqlite3.Connection.backup()`（一致性快照），**不是 `cp`**——库开着 WAL，`cp` 只拷主文件，最近的写入还在 `-wal` 里，拷出来的可能是旧的甚至不一致的。备份完还会打开备份文件核对三张表的行数。
+- 服务器上的备份和库在同一块盘，盘没了两个一起没。所以还要 `scripts/pull_backup.ps1` 把最新一份拉到本机 `Desktop\group-brain-backups\`，只留最近 7 份。
+
+还原（出事时照抄）：
+
+```bash
+systemctl stop group-brain
+cp data/backups/group_brain-20261110-210408.db data/group_brain.db
+rm -f data/group_brain.db-wal data/group_brain.db-shm   # 旧 WAL 必须删，否则会盖回去
+systemctl start group-brain
+```
+
+---
+
 ## 为什么是 bigram 不是 jieba
 
 一句话：**索引和查询必须用同一套切法**。
@@ -203,8 +242,8 @@ python scripts/run_eval.py
 - ~~**接口带上下文**：`/api/agent` 加 `history` 参数~~ —— 已做（A2 v0.2）：上下文题 0/6 → 6/6，见 `docs/agent.md`
 - **规则前置**：`agent.run()` 前加一层 `rule_route()`，规则有把握就跳过「决定调不调」那一次模型往返。
   A3 的结论是这条路能省掉几乎全部模型调用，现在缺的是把它接进真实接口再跑一遍 50 条
-- **工程收尾**：GitHub Actions 跑 `check_queries.py` + 关键词模式评测（不花钱）、`requirements.txt` 锁版本、
-  补 LICENSE、每天把 `data/group_brain.db` 备份回本机
+- ~~**工程收尾**~~ —— 已做：CI（`.github/workflows/ci.yml`）、依赖锁版本、LICENSE、每天自动备份 + 拉回本机，见「工程收尾」一节
 - **周报推送**：现在只能自己开网页看，推群/推微信还没做（`docs/coach.md` 第七节第 4 条）
+- **备份加校验**：现在备份完只核对行数，还没做「拿备份真恢复一次」的演练
 
 写代码之前先写 README——这条规矩是你自己定的。

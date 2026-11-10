@@ -259,3 +259,65 @@ ss -tlnp | grep sshd                  # 三个端口都在，才算成
 `https://118.178.109.54` 用浏览器打开会看到证书错误或一串 `SSH-2.0-...`，这是正常的，
 **不影响 `zkysever.com`**——官网走的是 cloudflared 隧道，是服务器**主动往外连**，
 跟入方向 443 没有任何关系。
+
+---
+
+# 备份（2026-11-10 加的）
+
+## 谁在备份、备份到哪
+
+| 层 | 什么时候 | 放哪 | 留几份 |
+|---|---|---|---|
+| 服务器自动 | 每天 03:30（crontab） | `/opt/group-brain/data/backups/` | 14 |
+| 本机（要手动或自己排计划） | 你跑 `pull_backup.ps1` 时 | `C:\Users\Administrator\Desktop\group-brain-backups\` | 7 |
+
+服务器那条 crontab（`crontab -l` 能看到）：
+
+```
+MAILTO=""
+SHELL=/bin/bash
+HOME=/root
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+30 3 * * * cd /opt/group-brain && /opt/group-brain/.venv/bin/python scripts/backup_db.py >> /var/log/gb-backup.log 2>&1
+```
+
+## 为什么不是 `cp group_brain.db`
+
+库开着 WAL（`PRAGMA journal_mode=WAL`）。直接 `cp` 只拷主文件，最近的写入还在
+`group_brain.db-wal` 里，拷出来的可能是旧的，严重时是不一致的。
+`scripts/backup_db.py` 用的是 `sqlite3.Connection.backup()`：它在一个读事务里把一致性
+快照写到目标文件，WAL 里的内容也会带上。备份完还会打开备份文件，核对
+`messages / memes / vectors` 三张表的行数。
+
+## 怎么确认它真的在跑
+
+2026-11-10 验证过一次：把同一条命令临时改成「每分钟」跑，两分钟后
+`data/backups/` 里多出两份文件、日志里有 `[ok] 备份: ... 消息 483 / 表情包 122 / 向量 605`，
+然后撤掉了临时任务。**别只相信 crontab 文件存在，要看到文件真的多出来。**
+
+看日志：
+
+```bash
+tail -n 20 /var/log/gb-backup.log
+ls -lt /opt/group-brain/data/backups/ | head
+```
+
+## 还原（出事时照抄）
+
+```bash
+systemctl stop group-brain
+cd /opt/group-brain
+cp data/backups/group_brain-20261110-210408.db data/group_brain.db
+rm -f data/group_brain.db-wal data/group_brain.db-shm   # 旧 WAL 必须删，否则启动后会把旧内容盖回去
+systemctl start group-brain
+curl -s localhost:8000/api/health                        # 看 db_ok 与三张表的条数
+```
+
+## 还没做的
+
+- **没做过「拿备份真恢复一次」的演练**。备份没恢复过，就等于没有备份——这条写在 README 的「下一步」里。
+- **本机那份要靠手动跑**（`scripts/pull_backup.ps1`）。想自动的话可以在任务计划程序里排一条，
+  但注意：笔记本不常开，排了也不一定跑得到，所以我没替你设。
+- `.env` 不在备份里（里面有 `GATE_SECRET` 和几个 key）。它的内容在你本机
+  `~/.dsh/secrets/` 和这五个变量里，丢了重新配一次即可，不算数据损失。
+
