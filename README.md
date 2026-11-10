@@ -60,7 +60,7 @@ group-brain/
 │  ├─ import_messages.py 导入群聊
 │  ├─ build_vectors.py   建向量（--force 全量重建）
 │  ├─ run_eval.py        检索评测（三种模式并排）
-│  ├─ run_agent_eval.py  Agent 评测（30 条）
+│  ├─ run_agent_eval.py  Agent 评测（50 条 + 6 条上下文题）
 │  ├─ pick_queries.py    翻聊天记录，帮你想评测题
 │  ├─ check_queries.py   评测集体检（JSONL 有没有写错）
 │  ├─ rebuild_fts.py     只重建关键词索引（不需要原始库）
@@ -70,6 +70,7 @@ group-brain/
 │  ├─ index.html         搜索页（原生三件套，无框架）
 │  ├─ agent.html         Agent 页（带工具调用记录）
 │  ├─ login.html         口令页
+│  ├─ portfolio.html     作品集页（公开，不要口令）
 │  └─ admin.html        管理面板（轮询任务状态、看日志）
 ├─ docs/
 │  ├─ deploy.md          部署 + 事故复盘 + SSH 三端口
@@ -82,6 +83,7 @@ group-brain/
 └─ eval/
    ├─ queries.jsonl      检索评测集（48 条）
    ├─ agent_cases.jsonl  Agent 评测集（50 条）
+   ├─ agent_history_cases.jsonl 上下文题（6 条，带 history）
    ├─ agent_holdout.jsonl 留出集（10 条，写完规则之后才写的）
    └─ 怎么补评测集.md     给未来的自己看的操作手册
 ```
@@ -96,6 +98,7 @@ GET /api/context?id=8&before=4&after=4                 # 记忆回放：前后�
 GET /api/stats
 GET /api/meme/{id}                                     # 直接返回图片
 GET /api/agent?q=谁说过要吃鱼片&history=[...]           # Agent 模式；history 是刚才的对话（JSON），用来解「刚才那句」
+GET /portfolio                                         # 作品集页（唯一不要口令的页面）
 GET /api/health                                        # 会真查一次库，回 db_ok
 GET /login · POST /login · GET /logout                 # 口令门
 GET /admin · GET /api/admin/status · POST /api/admin/run?task=fts

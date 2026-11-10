@@ -19,10 +19,10 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from . import admin, agent, auth, db, search
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.7.0")
+app = FastAPI(title="group-brain", version="0.8.0")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
-PUBLIC = {"/login", "/api/health", "/favicon.ico"}
+PUBLIC = {"/login", "/api/health", "/favicon.ico", "/portfolio"}
 
 _ERR_TEXT = {
     "bad": "口令不对，再试一次。",
@@ -197,6 +197,24 @@ def api_agent(
     if not q:
         return {"ok": False, "error": "问题不能为空", "answer": "", "trace": []}
     return agent.run(conn(), q, max_rounds=rounds, history=history)
+
+
+@app.get("/portfolio", response_class=HTMLResponse)
+def portfolio_page() -> str:
+    """作品集页：不需要口令。
+
+    理由是这一页存在的目的就是「发给别人看」——面试官、群友、视频观众。
+    要口令的页面等于没贴出去。页面上只有聚合数字和结论，没有任何一条原始发言。
+    """
+    page = WEB_DIR / "portfolio.html"
+    if not page.exists():
+        raise HTTPException(500, "web/portfolio.html 不见了")
+    st = search.stats(conn())
+    html = page.read_text(encoding="utf-8")
+    # 数字取实时值：搬一次服务器、重导一次数据，这页自己会跟上，不用手改
+    for key, val in (("{{MSG}}", st["messages"]), ("{{MEME}}", st["memes"]), ("{{VEC}}", st["vectors"])):
+        html = html.replace(key, str(val))
+    return html
 
 
 @app.get("/admin", response_class=HTMLResponse)

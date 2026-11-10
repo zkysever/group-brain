@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>群聊记忆体 · 作品集</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --line: #262b35;
+    --text: #e6e9ef;
+    --dim: #9aa4b2;
+    --accent: #5b8cff;
+    --ok: #3fb950;
+    --warn: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.7 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -.5px; }
+  h2 { font-size: 19px; margin: 40px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 15px; margin: 20px 0 6px; color: var(--accent); }
+  p { margin: 8px 0; }
+  .lede { color: var(--dim); font-size: 15px; }
+  .badge {
+    display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    background: #1e2633; color: var(--accent); vertical-align: 6px; margin-left: 8px;
+  }
+  .nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 18px 0 8px; }
+  .num { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .num b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .num span { color: var(--dim); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 500; font-size: 13px; }
+  code { background: #1b2029; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 12px 0; }
+  .card .q { color: var(--warn); font-weight: 600; }
+  .card .why { color: var(--dim); }
+  .ok { color: var(--ok); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ul { padding-left: 20px; margin: 8px 0; }
+  li { margin: 4px 0; }
+  .foot { margin-top: 44px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--dim); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>群聊记忆体 <span class="badge">group-brain</span></h1>
+  <p class="lede">
+    把一个 QQ 群两年半的废话，做成一个能搜索、能回答、能自己维护的网站。<br>
+    关键词 + 向量混合检索 → 交给大模型自行决定查不查 → 全部跑在一台 2 核 2G 的服务器上。
+  </p>
+
+  <div class="nums">
+    <div class="num"><b>{{MSG}}</b><span>条群聊消息</span></div>
+    <div class="num"><b>{{MEME}}</b><span>张表情包</span></div>
+    <div class="num"><b>{{VEC}}</b><span>条向量（1024 维）</span></div>
+    <div class="num"><b>1.000</b><span>检索 Recall@5（48 条）</span></div>
+    <div class="num"><b>49/50</b><span>Agent 工具选择（50 条）</span></div>
+    <div class="num"><b>19</b><span>次提交</span></div>
+  </div>
+
+  <h2>它现在能做什么</h2>
+  <ul>
+    <li><b>搜索</b>：搜「大肥鱼」能搜到谁喊过、谁吃过鱼片；搜「生气的表情」直接出图。</li>
+    <li><b>看上下文</b>：任何一条消息都能展开前后几条，单看一句废话、配上前后文才有意思。</li>
+    <li><b>问它</b>：<code>/agent</code> 里问「谁说过要吃鱼片」，它自己决定去翻库、翻图库、还是看表，并把调用过程摊开给你看。</li>
+    <li><b>维护</b>：<code>/admin</code> 五个按钮重建索引、重导表情包、建向量、合并 WAL、VACUUM，不用登服务器敲命令。</li>
+  </ul>
+
+  <h2>版本史</h2>
+  <table>
+    <tr><th>版本</th><th>做了什么</th><th>学到的东西</th></tr>
+    <tr><td>v0.1</td><td>SQLite + FTS5 + 中文 bigram 切分</td><td>jieba 装不上，反而逼出了一个能解释清楚的方案</td></tr>
+    <tr><td>v0.2</td><td>表情包入库（122 张，带画师标注和关键词）</td><td>「描述」和「用户会打的词」是两回事，两者都要存</td></tr>
+    <tr><td>v0.3</td><td>48 条真实查询的评测集 + 一键评测脚本</td><td>没有评测集，所有「优化」都是猜</td></tr>
+    <tr><td>v0.4</td><td>bge-m3 向量 + RRF 融合</td><td>融合只能做一次，嵌套就稀释</td></tr>
+    <tr><td>v0.5</td><td>Docker 外部署：Nginx 无、Cloudflare Tunnel + systemd</td><td>域名、证书、备案、反向代理，一次说完</td></tr>
+    <tr><td>v0.6</td><td>记忆回放（<code>/api/context</code>）</td><td>找得到 ≠ 看得懂</td></tr>
+    <tr><td>v0.7</td><td>Web 管理面板</td><td>「只有我会操作」的服务，等于没做完</td></tr>
+    <tr><td>v0.2(A2)</td><td>Agent：三个工具 + 上下文</td><td>指代解不了不是模型笨，是接口里没有「刚才」</td></tr>
+  </table>
+
+  <h2>四个当时想清楚了的决定</h2>
+
+  <div class="card">
+    <p class="q">一、不用向量数据库，暴力点乘就够了。</p>
+    <p class="why">605 条 × 1024 维 = 2.5MB，全放内存里算一遍余弦相似度是几毫秒的事。
+    上 Chroma / Milvus 能让架构图好看，但要多跑一个进程、多一份要备份的状态，
+    在这个量级上纯粹是给自己找活儿干。什么时候该换？等它慢到 100ms 以上再说，那时数据量大概在十万条。</p>
+  </div>
+
+  <div class="card">
+    <p class="q">二、中文用 bigram 切分，不用 jieba。</p>
+    <p class="why">「大肥鱼」切成「大肥 / 肥鱼」，搜「肥鱼」也能中——牺牲一点精度，换来零依赖、零词典、
+    可解释。第一版就是这样拿到 Recall@5 0.938 的。词频统计的毛病它也有：搜「开盒」搜不到「开个盒」，
+    这类问题后来靠向量补上了。</p>
+  </div>
+
+  <div class="card">
+    <p class="q">三、融合只做一次。</p>
+    <p class="why">RRF 只记名次：每条记录贡献 1/(60+名次)。我第一版先把「关键词 × 向量」融合一遍，
+    再和表情包融合第二遍——结果向量里排第 1 的消息，第二轮被表情包挤掉了。
+    改成四路平铺、只融一次之后，Recall@5 从 0.958 涨到 1.000。<b>融合是「定一次名次」的操作，不能嵌套。</b></p>
+  </div>
+
+  <div class="card">
+    <p class="q">四、先写规则，再谈模型。</p>
+    <p class="why">20 行正则和 deepseek-chat 在「该不该调工具」上打平（都是 94%），
+    但一个 0ms、一个 3042ms，一个免费、一个每千次 0.73 元。
+    最后的分级路由 94% @ 60ms：规则有把握就用规则，没把握（比如出现「刚才那个」）才请模型。</p>
+  </div>
+
+  <h2>一次线上事故，和它教我的事</h2>
+  <p>上线第一天，所有读库的接口集体 500，但首页好好的。日志里只有一行：</p>
+  <p><code>sqlite3.ProgrammingError: SQLite objects created in a thread can only be used in that same thread.</code></p>
+  <p>原因是我用了一个进程级全局 sqlite 连接，本地单线程手测一切正常，一上线 FastAPI 把同步接口丢进线程池，
+    第二个线程拿去用就炸了。改成 thread-local 之后，12 线程并发 36 次请求零 5xx。</p>
+  <p class="why">三条教训，写在 <code>docs/deploy.md</code> 里：<b>本地跑通只等于单线程跑通</b>；
+    <b>探活不碰库，就不能证明服务好</b>（我就是被一个永远 200 的 <code>/api/health</code> 骗了半天）；
+    <b>先看 journalctl，别猜</b>。</p>
+
+  <h2>怎么做的（可复现）</h2>
+  <ul>
+    <li>代码：<a href="https://github.com/zkysever/group-brain" target="_blank" rel="noopener">github.com/zkysever/group-brain</a></li>
+    <li>在线：<a href="https://zkysever.com" target="_blank" rel="noopener">zkysever.com</a>（要口令，先看这个页面也行）</li>
+    <li>评测记录：<code>EVAL.md</code>——包括那几个不好看的数字（48 条里 3 条错、50 条里 1 条过度调用）</li>
+    <li>部署笔记：<code>docs/deploy.md</code>——Cloudflare Tunnel、systemd、SSH 三端口、那次把自己锁在门外的经过</li>
+  </ul>
+
+  <div class="foot">
+    数据全部来自一个真实的 QQ 群，已做脱敏（只保留昵称与发言内容，不含任何账号信息）。
+    搜索页与 Agent 需要口令，这个页面不需要。
+  </div>
+
+</div>
+</body>
+</html>
