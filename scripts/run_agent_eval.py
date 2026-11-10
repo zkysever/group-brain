@@ -131,8 +131,8 @@ def main() -> int:
     conn.close()
 
     # 只跑子集时别判定达标，否则 1/1 会得出荒谬结论
-    if args.grep or args.limit:
-        print("\n（子集运行，不判定达标）")
+    if args.grep or args.limit or args.cases:
+        print("\n（子集或非默认题集，不套用 50 条的达标线）")
         return 0
 
     # A2 的验收线：≥24/30，误触发 <15%
