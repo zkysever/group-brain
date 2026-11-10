@@ -9,10 +9,13 @@
 from __future__ import annotations
 
 import mimetypes
+import re
 import threading
+import time
 from pathlib import Path
 from urllib.parse import parse_qs
 
+import requests
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
@@ -247,9 +250,44 @@ def portfolio_page() -> str:
     st = search.stats(conn())
     html = page.read_text(encoding="utf-8")
     # 数字取实时值：搬一次服务器、重导一次数据，这页自己会跟上，不用手改
-    for key, val in (("{{MSG}}", st["messages"]), ("{{MEME}}", st["memes"]), ("{{VEC}}", st["vectors"])):
+    for key, val in (
+        ("{{MSG}}", st["messages"]),
+        ("{{MEME}}", st["memes"]),
+        ("{{VEC}}", st["vectors"]),
+        ("{{COMMITS}}", _commit_count()),
+    ):
         html = html.replace(key, str(val))
     return html
+
+
+# 提交数不能写死：写在页面上那一刻就开始过期，而这是要给人看的东西。
+# 用 GitHub API 拿一次（读 Link 头的 last 页号 = 总条数），缓存 10 分钟，
+# 拿不到就显示「—」——宁可空着，也不显示一个假数字。
+_COMMITS: dict[str, object] = {"n": None, "at": 0.0}
+
+
+def _commit_count() -> str:
+    now = time.time()
+    if _COMMITS["n"] and now - float(_COMMITS["at"]) < 600:
+        return str(_COMMITS["n"])
+    tok = coach._gh_token()
+    if not tok:
+        return "—"
+    try:
+        r = requests.get(
+            f"https://api.github.com/repos/{coach.REPO}/commits",
+            params={"per_page": 1},
+            headers={"Authorization": f"Bearer {tok}", "User-Agent": "group-brain"},
+            timeout=5,
+        )
+        m = re.search(r'[?&]page=(\d+)>; rel="last"', r.headers.get("Link", ""))
+        n = m.group(1) if m else ("1" if r.status_code == 200 else "—")
+    except Exception:
+        n = "—"
+    # 失败不进缓存：网络抖一下就把公开页上的数字空 10 分钟，不值当
+    if n != "—":
+        _COMMITS.update({"n": n, "at": now})
+    return n
 
 
 @app.get("/admin", response_class=HTMLResponse)
