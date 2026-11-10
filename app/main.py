@@ -16,10 +16,10 @@ from urllib.parse import parse_qs
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from . import admin, agent, auth, db, search
+from . import admin, agent, auth, coach, db, search
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.8.0")
+app = FastAPI(title="group-brain", version="0.9.0")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
 PUBLIC = {"/login", "/api/health", "/favicon.ico", "/portfolio"}
@@ -197,6 +197,41 @@ def api_agent(
     if not q:
         return {"ok": False, "error": "问题不能为空", "answer": "", "trace": []}
     return agent.run(conn(), q, max_rounds=rounds, history=history)
+
+
+@app.get("/coach", response_class=HTMLResponse)
+def coach_page() -> str:
+    page = WEB_DIR / "coach.html"
+    if not page.exists():
+        raise HTTPException(500, "web/coach.html 不见了")
+    return page.read_text(encoding="utf-8")
+
+
+@app.get("/api/coach")
+def api_coach_get(week: str = Query("", description="ISO 周，如 2026-W46；留空=本周")):
+    """读：某一周的周报 + 最近生成过哪些周。"""
+    c = conn()
+    wk = week.strip() or coach.iso_week()
+    try:
+        rep = coach.get(c, wk)
+    except Exception as e:
+        return {"ok": False, "error": str(e), "reports": []}
+    return {"ok": True, "week": wk, "report": rep, "reports": coach.recent(c)}
+
+
+@app.post("/api/coach")
+def api_coach_gen(week: str = Query("", description="ISO 周；留空=本周")):
+    """写：生成（或重算）某一周的周报。要调一次 DeepSeek，约 10~20 秒。
+
+    单独做成 POST 是因为它会花钱、也慢；GET 让它顺带生成的话，
+    刷新页面就会重复扣钱，这不是一个页面该有的行为。
+    """
+    try:
+        res = coach.generate(conn(), week, save=True)
+    except Exception as e:                      # noqa: BLE001 —— 生成失败要把原因原样告诉用户
+        return {"ok": False, "error": str(e)}
+    res["facts_text"] = coach.render_facts(res["facts"])
+    return res
 
 
 @app.get("/portfolio", response_class=HTMLResponse)

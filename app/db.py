@@ -57,6 +57,15 @@ CREATE TABLE IF NOT EXISTS meta (
     v TEXT
 );
 
+-- A4 学习教练的周报。week 用 ISO 周（2026-W46），一周一份，重算就覆盖。
+CREATE TABLE IF NOT EXISTS reports (
+    week         TEXT PRIMARY KEY,
+    generated_at TEXT NOT NULL,
+    facts        TEXT NOT NULL,   -- 喂给模型之前的那份「事实清单」，留档是为了以后能查「它是不是在编」
+    text         TEXT NOT NULL,   -- 模型写出来的周报正文
+    model        TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_name);
 CREATE INDEX IF NOT EXISTS idx_memes_tag ON memes(tag);

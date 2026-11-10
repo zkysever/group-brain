@@ -1,6 +1,6 @@
 # group-brain
 
-群聊记忆体 · v0.7
+群聊记忆体 · v0.9
 
 把 AstrBot 里攒下来的群聊记录 + 两套表情包，变成**一条能搜的索引**，
 再往上加一层「模型自己决定查不查」的 Agent。在线地址：**https://zkysever.com**
@@ -31,10 +31,12 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | 中文 bigram 分词（索引与查询同一套切法） | ✅ |
 | 检索评测（48 条，Recall@5 1.000 / MRR 0.939） | ✅ `EVAL.md` |
 | Agent 模式：模型自己决定调不调工具 | ✅ A2，见 `/agent` |
-| Agent 评测（30 条，正确率 30/30，误触发 0/6） | ✅ `EVAL.md` 第七节 |
+| Agent 评测（50 条 + 6 条上下文题，49/50、误触发 0/11） | ✅ `EVAL.md` 第七节 |
 | 口令门（HMAC cookie + 限速，不走邮箱） | ✅ v0.4 |
 | 部署：cloudflared 隧道 + systemd + 三端口 SSH | ✅ `docs/deploy.md` |
 | Web 管理面板（重建索引 / 重导表情包 / 建向量 / 合并 WAL） | ✅ v0.7 |
+| 作品集页（公开，数字实时） | ✅ v0.8，/portfolio |
+| 学习教练：从提交和群活跃度生成周报 | ✅ A4，见 `/coach` 与 `docs/coach.md` |
 
 ---
 
@@ -64,6 +66,7 @@ group-brain/
 │  ├─ pick_queries.py    翻聊天记录，帮你想评测题
 │  ├─ check_queries.py   评测集体检（JSONL 有没有写错）
 │  ├─ rebuild_fts.py     只重建关键词索引（不需要原始库）
+│  ├─ gen_report.py      生成周报（--week 2026-W46 / last / --dry）
 │  ├─ bench_routing.py   路由实验：规则 / 小模型 / 大模型 / 混合 四方案对比
 │  └─ db_maintenance.py  WAL 合并 / VACUUM
 ├─ web/
@@ -71,11 +74,13 @@ group-brain/
 │  ├─ agent.html         Agent 页（带工具调用记录）
 │  ├─ login.html         口令页
 │  ├─ portfolio.html     作品集页（公开，不要口令）
+│  ├─ coach.html         学习教练：选一周、生成、看事实清单
 │  └─ admin.html        管理面板（轮询任务状态、看日志）
 ├─ docs/
 │  ├─ deploy.md          部署 + 事故复盘 + SSH 三端口
 │  ├─ agent.md           Agent 的设计与三个刻意限制
 │  ├─ routing.md         路由实验：20 行正则凭什么和大模型打平
+│  ├─ coach.md           周报为什么是「先算事实再让模型写」
 │  └─ cloudflare.md      域名与 NS
 ├─ data/
 │  ├─ raw/               ← AstrBot 数据库副本放这儿
@@ -103,6 +108,8 @@ GET /api/health                                        # 会真查一次库，�
 GET /login · POST /login · GET /logout                 # 口令门
 GET /admin · GET /api/admin/status · POST /api/admin/run?task=fts
                                                        # 管理面板：fts/memes/vectors/wal/vacuum
+GET /api/coach?week=2026-W46                           # 读周报（+最近生成过哪些周）
+POST /api/coach?week=2026-W46                          # 生成/重算周报，要调模型、10~20 秒
 ```
 
 ---
@@ -124,6 +131,26 @@ GET /admin · GET /api/admin/status · POST /api/admin/run?task=fts
 2. **没有「重新导入聊天记录」按钮**，因为服务器上根本没有 AstrBot 原始库——数据是从本机导入后传上去的。
    要更新聊天记录，只能在本机重跑 `import_messages.py`，再把 `data/group_brain.db` 传上去。
 3. **日志会截断到 8000 字符**。不看日志的批处理按钮等于黑箱，看全部日志又没必要。
+
+---
+
+## 学习教练（A4）
+
+`/coach`：选一周，点生成，拿到三段——这周做了什么 / 卡在哪 / 下周一件具体的事。
+
+和 `/agent` 的区别是**谁主导**：Agent 是模型自己决定查什么；教练是**先把这周的事实算好**（GitHub 提交 + 群聊活跃天数，只做聚合、不取原文），模型只负责组织语言。
+
+| 方法 | 路径 | 干什么 |
+|---|---|---|
+| GET | `/api/coach?week=2026-W46` | 读该周周报 + 最近生成过哪些周 |
+| POST | `/api/coach?week=2026-W46` | 生成或重算（调一次 DeepSeek，10~20 秒） |
+
+三个取舍：
+1. **生成做成 POST**。它花钱又慢，做成 GET 的话刷新一次页面就重新扣一次钱。
+2. **`facts` 列必须留档**。报告里的每句话都应该能在 facts 里找到出处，哪天真发现它在编，两列一比就知道。
+3. **只给纯文本、不给 JSON**。模型对着 JSON 会照着念字段名（“commits 数组长度 19”），对着人话才写人话。
+
+细节与已知短板见 `docs/coach.md`；命令行版 `python scripts/gen_report.py --week last`。
 
 ---
 
@@ -174,6 +201,10 @@ python scripts/run_eval.py
   （GitHub 下载 0 字节/秒、镜像 147 KB/s，1.85 GB 要 3.5 小时，不值当）。本地部署留到有 GPU 空的时候再说
 - ~~v0.7：Web 管理面板~~ 已完成。还差的见下面两条
 - ~~**接口带上下文**：`/api/agent` 加 `history` 参数~~ —— 已做（A2 v0.2）：上下文题 0/6 → 6/6，见 `docs/agent.md`
-- **规则前置**：`agent.run()` 前加一层 `rule_route()`，规则有把握就跳过「决定调不调」那一次模型往返
+- **规则前置**：`agent.run()` 前加一层 `rule_route()`，规则有把握就跳过「决定调不调」那一次模型往返。
+  A3 的结论是这条路能省掉几乎全部模型调用，现在缺的是把它接进真实接口再跑一遍 50 条
+- **工程收尾**：GitHub Actions 跑 `check_queries.py` + 关键词模式评测（不花钱）、`requirements.txt` 锁版本、
+  补 LICENSE、每天把 `data/group_brain.db` 备份回本机
+- **周报推送**：现在只能自己开网页看，推群/推微信还没做（`docs/coach.md` 第七节第 4 条）
 
 写代码之前先写 README——这条规矩是你自己定的。

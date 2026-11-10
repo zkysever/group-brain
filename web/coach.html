@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>学习教练 · group-brain</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --line:#262b36;
+    --fg:#e6e9ef; --dim:#8b93a7; --accent:#5b8cff; --ok:#39d98a; --warn:#ffb020; --bad:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:820px;margin:0 auto;padding:28px 18px 64px}
+  header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+  h1{font-size:26px;margin:0;letter-spacing:-.5px}
+  .badge{font-size:12px;padding:2px 8px;border-radius:999px;background:#22293a;color:#9fb4ff;border:1px solid #2e3a55}
+  .sub{color:var(--dim);font-size:13px;margin:6px 0 22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:14px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  input[type=text]{background:var(--panel2);border:1px solid var(--line);color:var(--fg);
+    border-radius:10px;padding:10px 12px;font-size:16px;flex:1 1 160px;min-width:0}
+  input[type=text]:focus{outline:none;border-color:var(--accent)}
+  button{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:10px 16px;
+    font-size:15px;cursor:pointer;white-space:nowrap}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
+  h2{font-size:15px;margin:0 0 10px;color:var(--dim);font-weight:600;letter-spacing:.02em}
+  .report{white-space:pre-wrap;font-size:15.5px;line-height:1.75}
+  .report strong{color:#fff}
+  .facts{font:13px/1.7 ui-monospace,Consolas,"Cascadia Mono",monospace;color:#b9c0d0;
+    white-space:pre-wrap;background:var(--panel2);border-radius:10px;padding:12px;margin-top:10px;
+    max-height:340px;overflow:auto}
+  details summary{cursor:pointer;color:var(--dim);font-size:13px;outline:none}
+  details[open] summary{margin-bottom:6px}
+  .hist{display:flex;flex-direction:column;gap:8px}
+  .hist .item{padding:10px 12px;background:var(--panel2);border-radius:10px;cursor:pointer;border:1px solid transparent}
+  .hist .item:hover{border-color:var(--line)}
+  .hist .wk{font-family:ui-monospace,Consolas,monospace;color:#9fb4ff;font-size:13px}
+  .hist .head{color:var(--dim);font-size:13px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .msg{font-size:13px;padding:8px 10px;border-radius:8px;margin-top:10px;display:none}
+  .msg.show{display:block}
+  .msg.err{background:#2a1a1c;color:#ffb3b3;border:1px solid #4a2528}
+  .msg.ok{background:#14251d;color:#9fe8c0;border:1px solid #23453a}
+  footer{margin-top:26px;color:#5f6779;font-size:12.5px;line-height:1.8}
+  .kbd{font-family:ui-monospace,Consolas,monospace;background:var(--panel2);padding:1px 6px;border-radius:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>学习教练</h1>
+    <span class="badge" id="ver">A4</span>
+  </header>
+  <p class="sub">从 GitHub 提交和群聊活跃度里摘出这一周的事实，交给模型写成三段：做了什么 / 卡在哪 / 下周一件的事。</p>
+
+  <div class="card">
+    <h2>选一周</h2>
+    <div class="row">
+      <input type="text" id="week" placeholder="2026-W46">
+      <button id="gen">生成这一周</button>
+      <button class="ghost" id="thisweek">本周</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="card" id="repcard" style="display:none">
+    <h2 id="rephead">周报</h2>
+    <div class="report" id="report"></div>
+    <details style="margin-top:14px">
+      <summary>它看到的事实清单（报告里的每一句都应该能在这里找到出处）</summary>
+      <div class="facts" id="facts"></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>已生成的周报</h2>
+    <div class="hist" id="hist"><span style="color:var(--dim);font-size:13px">还没生成过</span></div>
+  </div>
+
+  <footer>
+    生成时要调一次 DeepSeek（约 15 秒），结果存在 <span class="kbd">reports</span> 表里，同一周重算会覆盖。
+    也可以不开网页，直接跑 <span class="kbd">python scripts/gen_report.py --week 2026-W46</span>。
+    <br><a href="/">← 回到搜索</a>
+  </footer>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const msg = (text, kind) => {
+  const el = $('#msg');
+  el.textContent = text;
+  el.className = 'msg show ' + (kind || '');
+};
+const clearMsg = () => { $('#msg').className = 'msg'; };
+
+function isoWeekNow() {
+  const d = new Date();
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const y = t.getUTCFullYear();
+  const w = Math.ceil(((t - Date.UTC(y, 0, 1)) / 86400000 + 1) / 7);
+  return y + '-W' + String(w).padStart(2, '0');
+}
+
+// 报告里只有 **加粗** 这一种标记，手动转一下，别为这点事引一个 markdown 库
+function render(text) {
+  const esc = text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  return esc.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+
+function showReport(week, text, facts) {
+  $('#repcard').style.display = '';
+  $('#rephead').textContent = '周报 · ' + week;
+  $('#report').innerHTML = render(text);
+  $('#facts').textContent = facts || '（这一份没有留档事实清单）';
+}
+
+async function loadHistory() {
+  const r = await fetch('/api/coach');
+  if (r.status === 401) { location.href = '/login'; return; }
+  const d = await r.json();
+  const box = $('#hist');
+  if (!d.reports || !d.reports.length) {
+    box.innerHTML = '<span style="color:var(--dim);font-size:13px">还没生成过</span>';
+    return;
+  }
+  box.innerHTML = d.reports.map((x) =>
+    `<div class="item" data-week="${x.week}">
+       <div class="wk">${x.week} <span style="color:#5f6779">· ${x.generated_at.replace('T', ' ')}</span></div>
+       <div class="head">${x.head.replace(/[&<>]/g, '')}…</div>
+     </div>`).join('');
+  box.querySelectorAll('.item').forEach((el) => {
+    el.onclick = () => { $('#week').value = el.dataset.week; openWeek(el.dataset.week); };
+  });
+}
+
+async function openWeek(week) {
+  const r = await fetch('/api/coach?week=' + encodeURIComponent(week));
+  if (r.status === 401) { location.href = '/login'; return; }
+  const d = await r.json();
+  if (d.report) showReport(d.report.week, d.report.text, d.report.facts);
+}
+
+async function generate() {
+  const week = $('#week').value.trim();
+  if (!week) { msg('先填个周，比如 2026-W46', 'err'); return; }
+  $('#gen').disabled = true;
+  msg('正在生成… 要调一次模型，大概 15 秒', '');
+  try {
+    const r = await fetch('/api/coach?week=' + encodeURIComponent(week), { method: 'POST' });
+    if (r.status === 401) { location.href = '/login'; return; }
+    const d = await r.json();
+    if (!d.ok) { msg('没成功：' + (d.error || '未知原因'), 'err'); return; }
+    showReport(d.week, d.text, d.facts_text || '');
+    msg('生成好了，已存进数据库', 'ok');
+    loadHistory();
+  } catch (e) {
+    msg('请求失败：' + e.message, 'err');
+  } finally {
+    $('#gen').disabled = false;
+  }
+}
+
+$('#gen').onclick = generate;
+$('#thisweek').onclick = () => { $('#week').value = isoWeekNow(); openWeek($('#week').value); };
+$('#week').addEventListener('keydown', (e) => { if (e.key === 'Enter') generate(); });
+
+$('#week').value = isoWeekNow();
+loadHistory();
+</script>
+</body>
+</html>
