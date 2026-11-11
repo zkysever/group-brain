@@ -1,0 +1,32 @@
+name: ci
+
+# 每次 push 自动跑一遍。它不能替代真正的评测（那需要真实群聊库和 API key），
+# 但能挡住最常见的一类事故：改坏了代码，自己没发现，直接推到线上。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 装依赖（顺便验证 requirements.txt 还能装）
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: 语法检查（能不能 import 都过一遍）
+        run: python -m compileall -q app scripts
+
+      - name: 评测集格式（少个逗号、中文全角引号、BOM 都会在这里暴露）
+        run: python scripts/check_queries.py eval/queries.jsonl eval/agent_cases.jsonl eval/agent_history_cases.jsonl eval/agent_holdout.jsonl
+
+      - name: 自检（临时库跑一遍：建表 → 写入 → 检索 → 取上下文 → 统计）
+        env:
+          GB_DB: /tmp/ci_selftest.db
+        run: python scripts/selftest.py
