@@ -11,3 +11,4 @@ data/raw/*.db-shm
 data/.gate_secret
 .env
 .DS_Store
+data/backups/

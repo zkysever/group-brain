@@ -71,6 +71,7 @@ group-brain/
 │  ├─ gen_report.py      生成周报（--week 2026-W46 / last / --dry）
 │  ├─ bench_routing.py   路由实验：规则 / 小模型 / 大模型 / 混合 四方案对比
 │  ├─ backup_db.py       备份数据库（sqlite3 backup API，带 WAL 也一致）+ 保留最近 N 份
+│  ├─ restore_check.py   恢复演练：真打开一份备份、真查一次，证明它不是废文件
 │  ├─ cron_coach.sh      每周一 09:00 自动生成周报的入口（要 source .env，cron 里没有 key）
 │  ├─ pull_backup.ps1    把服务器上最新备份拉到本机（备份不能和库放同一块盘）
 │  ├─ selftest.py        CI 用的自检：临时库跑一遍主链路，不碰你的数据
@@ -247,6 +248,6 @@ python scripts/run_eval.py
   7209 ms → 4661 ms、模型往返 1.04 → 0.86，正确率不变。第一版把结果塞 system 消息是错的（38 条被前置的题模型全部又自己查一遍），见 `docs/agent.md`「规则前置」一节
 - ~~**工程收尾**~~ —— 已做：CI（`.github/workflows/ci.yml`）、依赖锁版本、LICENSE、每天自动备份 + 拉回本机，见「工程收尾」一节
 - **周报推送**：只能自己开网页看。三条路（企业微信 webhook / SMTP / AstrBot 插件）都要新账号或会打扰群里，见 `docs/deploy.md`「定时任务」
-- **备份加校验**：现在备份完只核对行数，还没做「拿备份真恢复一次」的演练
+- ~~**备份加校验**~~ —— 已做（v0.10）：`scripts/restore_check.py` 真恢复一次并真查一次，本机与服务器都验过；服务器每月 1 号 04:00 自动跑，日志 `/var/log/gb-restore.log`
 
 写代码之前先写 README——这条规矩是你自己定的。

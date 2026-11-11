@@ -280,6 +280,7 @@ HOME=/root
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 30 3 * * * cd /opt/group-brain && /opt/group-brain/.venv/bin/python scripts/backup_db.py >> /var/log/gb-backup.log 2>&1
 0 9 * * 1 bash /opt/group-brain/scripts/cron_coach.sh >> /var/log/gb-coach.log 2>&1
+0 4 1 * * cd /opt/group-brain && MEME_PACKS=/opt/group-brain/meme-packs /opt/group-brain/.venv/bin/python scripts/restore_check.py >> /var/log/gb-restore.log 2>&1
 ```
 
 第二条是「每周一 09:00 自动生成上一周的周报」，见下面「定时任务」一节。
@@ -316,22 +317,47 @@ systemctl start group-brain
 curl -s localhost:8000/api/health                        # 看 db_ok 与三张表的条数
 ```
 
+## 恢复演练：`scripts/restore_check.py`（2026-11-11 加的）
+
+备份写出来了 ≠ 备份能用。这份脚本干的事就是**当场恢复一次给你看**：
+
+```bash
+cd /opt/group-brain
+.venv/bin/python scripts/restore_check.py                    # 默认挑 data/backups 里最新的一份
+.venv/bin/python scripts/restore_check.py data/backups/xxx.db
+MEME_PACKS=/opt/group-brain/meme-packs .venv/bin/python scripts/restore_check.py   # 顺带验图在不在
+```
+
+它检查六件事：`PRAGMA integrity_check`、五张表齐不齐、三张表的行数、
+**FTS 索引条数与正文条数是否一致**（行数对但索引空了，是这套系统最典型的坏法）、
+**真跑一次检索**「肥鱼」看有没有结果、抽查一张表情包的图在不在目录里。
+
+三条设计：①永远在 `/tmp` 的副本上演练，不碰备份原件也不碰线上库；
+②行数之外必须真查一次，否则测不出「文件好但索引空」；
+③失败时退出码非 0，并把临时副本留下给人看。
+
+实测（2026-11-11）：本机与服务器都通过——`integrity_check: ok`、483/122/605、
+索引 483 = 正文 483、查「肥鱼」3 条 1.56 ms。
+
+服务器每月 1 号 04:00 自动跑一次（crontab 第三条），日志 `/var/log/gb-restore.log`。
+**只验证不修复**：真发现坏了，它只告诉你坏，不会自动去动线上库——那种事应该人看着做。
+
 ## 还没做的
 
-- **没做过「拿备份真恢复一次」的演练**。备份没恢复过，就等于没有备份——这条写在 README 的「下一步」里。
-- **本机那份要靠手动跑**（`scripts/pull_backup.ps1`）。想自动的话可以在任务计划程序里排一条，
-  但注意：笔记本不常开，排了也不一定跑得到，所以我没替你设。
+- **本机那份要靠手动跑**（`scripts/pull_backup.ps1`）：笔记本不常开，排计划任务也不一定跑得到，所以没替你设。
 - `.env` 不在备份里（里面有 `GATE_SECRET` 和几个 key）。它的内容在你本机
   `~/.dsh/secrets/` 和这五个变量里，丢了重新配一次即可，不算数据损失。
 
+
 # 定时任务（2026-11-10 加的）
 
-服务器上只有两条 cron，都在 root 的 crontab 里：
+服务器上现在有三条 cron，都在 root 的 crontab 里：
 
 | 时间 | 干什么 | 日志 | 脚本 |
 |---|---|---|---|
 | 每天 03:30 | 备份数据库，留 14 份 | `/var/log/gb-backup.log` | `scripts/backup_db.py` |
 | 每周一 09:00 | 生成上一周的周报，写进 `reports` 表 | `/var/log/gb-coach.log` | `scripts/cron_coach.sh` |
+| 每月 1 号 04:00 | 拿最新备份做一次恢复演练（只验证不修复） | `/var/log/gb-restore.log` | `scripts/restore_check.py` |
 
 ## 周报为什么包一层 `.sh`
 
@@ -343,6 +369,9 @@ curl -s localhost:8000/api/health                        # 看 db_ok 与三张�
    `RuntimeError: 没配 DEEPSEEK_API_KEY，写不了周报` —— 我第一次就是这么错的。
 2. **crontab 里别写带分号的长链**。`set -a; . ./.env; set +a; python …` 这种，
    从 Windows 上 `ssh` 过去时引号会被剥掉，命令被拆成好几段执行（顺带把整个 shell 环境 `set` 打印了一遍）。
+
+**踩坑：`crontab /tmp/gb.cron` 报 `missing newline before EOF`。** 文件最后一行没有换行符就装不进去。
+本地写 `.cron` 时记得 `$t.EndsWith("`n")` 否则补一个——这个错很蠢，但它会让人以为 crontab 坏了。
 
 ## 怎么确认周报那条也在跑
 
