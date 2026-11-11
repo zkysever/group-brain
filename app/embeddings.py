@@ -10,15 +10,61 @@
 from __future__ import annotations
 
 import json
+import time
+import urllib.error
 import urllib.request
 
 import numpy as np
 
 from .config import EMBEDDING_MODEL, SILICONFLOW_KEY
 
+URL = "https://api.siliconflow.cn/v1/embeddings"
+
+
+class EmbeddingError(RuntimeError):
+    """接口出错。带上服务端原话——不带的话排查时只能对着 400 猜。"""
+
 
 def available() -> bool:
     return bool(SILICONFLOW_KEY)
+
+
+def _post(body: bytes, timeout: int = 60, attempts: int = 3) -> dict:
+    """打一次 embedding 接口，网络抖动和 429/5xx 重试，4xx 直接把服务端原话抛出来。
+
+    为什么必须重试：跑 50 条评测时，任意一条碰上一次抖动，整场评测就断在半路，
+    前面的结果全白跑（2026-11-10 就这么断过一次）。
+    为什么 4xx 不重试：参数错了重试一百次还是错，只会多花时间。
+    为什么要抛原话：`HTTP Error 400: Bad Request` 这七个字，什么都说明不了。
+    """
+    last: Exception | None = None
+    for i in range(attempts):
+        req = urllib.request.Request(
+            URL,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {SILICONFLOW_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:300]
+            if e.code in (429, 500, 502, 503, 504) and i < attempts - 1:
+                last = e
+                time.sleep(1.5 * (i + 1))
+                continue
+            raise EmbeddingError(f"embedding 接口 {e.code}: {detail}") from e
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            last = e
+            if i < attempts - 1:
+                time.sleep(1.5 * (i + 1))
+                continue
+            raise EmbeddingError(f"embedding 接口连不上: {type(e).__name__}: {e}") from e
+    raise EmbeddingError(f"embedding 接口重试 {attempts} 次仍失败: {last}")
 
 
 def embed(texts: list[str], batch: int = 16) -> np.ndarray | None:
@@ -32,17 +78,7 @@ def embed(texts: list[str], batch: int = 16) -> np.ndarray | None:
         body = json.dumps(
             {"model": EMBEDDING_MODEL, "input": chunk, "encoding_format": "float"}
         ).encode("utf-8")
-        req = urllib.request.Request(
-            "https://api.siliconflow.cn/v1/embeddings",
-            data=body,
-            headers={
-                "Authorization": f"Bearer {SILICONFLOW_KEY}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        data = _post(body)
         vectors.extend([d["embedding"] for d in data["data"]])
 
     arr = np.asarray(vectors, dtype=np.float32)

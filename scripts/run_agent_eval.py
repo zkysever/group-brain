@@ -84,17 +84,21 @@ def main() -> int:
     ap.add_argument("--slow", type=float, default=0.3)
     ap.add_argument("--cases", default="", help="换一份 case 文件，比如 eval/agent_history_cases.jsonl")
     ap.add_argument("--no-history", action="store_true", help="忽略 case 里的 history，用来做「不给上下文」的对照")
+    ap.add_argument("--no-prefetch", action="store_true", help="关掉规则前置，用来做 A/B 对比（默认是开的）")
     args = ap.parse_args()
 
     if not agent.available():
         raise SystemExit("没配 DEEPSEEK_API_KEY，跑不了")
+
+    if args.no_prefetch:
+        agent.PREFETCH = False
 
     cases = load_cases(args.limit or None, args.grep, Path(args.cases) if args.cases else None)
     conn = db.connect()
     rows = []
     t0 = time.time()
 
-    print(f"跑 {len(cases)} 条（模型 {agent.cfg.DEEPSEEK_MODEL}）\n")
+    print(f"跑 {len(cases)} 条（模型 {agent.cfg.DEEPSEEK_MODEL}，规则前置 {'关' if args.no_prefetch else '开'}）\n")
     for i, c in enumerate(cases, 1):
         hist = None if args.no_history else c.get("history")
         r = agent.run(conn, c["q"], history=hist)
@@ -102,7 +106,8 @@ def main() -> int:
         rows.append((c, r, ok, why))
         mark = "OK " if ok else "XX "
         got = "/".join(t for t in (r.get("tool_calls") or []) if t != "STOP") or "-"
-        print(f"{mark}{i:2d}. {c['q']:<18} 期望={','.join(c['tools']) or '(不调)':<16} 实际={got:<32} {why}")
+        pre = "+".join(r.get("prefetch") or []) or "-"
+        print(f"{mark}{i:2d}. {c['q']:<18} 期望={','.join(c['tools']) or '(不调)':<16} 实际={got:<32} 前置={pre:<14} {why}")
         if args.slow:
             time.sleep(args.slow)
 

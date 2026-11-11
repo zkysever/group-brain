@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime
 from typing import Any
@@ -24,7 +25,12 @@ from typing import Any
 import requests
 
 from . import config as cfg
+from . import router
 from . import search
+
+# 规则前置开关：AGENT_PREFETCH=0 可以关掉，用来做 A/B 对比。
+# 关掉之后行为和 v0.9 完全一致——这种开关要留着，不然改了东西没法证明改好了。
+PREFETCH = os.environ.get("AGENT_PREFETCH", "1") != "0"
 
 MAX_ROUNDS = 3          # 超过就停手：再转下去只是在烧 token
 HIT_CHARS = 120         # 单条结果截断长度，防止工具输出把上下文顶爆
@@ -224,6 +230,41 @@ def run(conn, question: str, max_rounds: int = MAX_ROUNDS, history: Any = None) 
     messages.append({"role": "user", "content": question})
     trace: list[dict[str, Any]] = []
     answer = ""
+    prefetched: list[str] = []
+
+    # 规则前置：有把握就先替它把工具跑了，省掉「决定要不要调」那一次往返。
+    #
+    # 第一版是把结果当成一条 system 消息塞进去（「我先预查了，结果如下，够就别重复查」），
+    # 实测 38 条被前置的题，模型**全部又自己调了一遍**——它不是不讲理，是没把这当回事：
+    # 在它眼里「还没调过工具」，system 里的字只是参考资料。
+    # 所以第二版改成伪造一轮真正的工具往返：assistant(tool_calls) + tool(结果)，
+    # 模型看到的状态就是「这工具我刚调过、结果是这个」，才会接着写答案而不是再调一次。
+    if PREFETCH:
+        plan = router.plan(question, bool(past))
+        if plan:
+            calls: list[dict[str, Any]] = []
+            tool_msgs: list[dict[str, Any]] = []
+            for idx, item in enumerate(plan, 1):
+                cid = f"prefetch_{idx}"
+                result, note = _run_tool(item["name"], item["args"], conn)
+                note["prefetch"] = True
+                trace.append(note)
+                prefetched.append(item["name"])
+                calls.append(
+                    {
+                        "id": cid,
+                        "type": "function",
+                        "function": {
+                            "name": item["name"],
+                            "arguments": json.dumps(item["args"], ensure_ascii=False),
+                        },
+                    }
+                )
+                tool_msgs.append({"role": "tool", "tool_call_id": cid, "content": result})
+            at = len(messages) - 1
+            messages.insert(at, {"role": "assistant", "content": "", "tool_calls": calls})
+            for i, m in enumerate(tool_msgs):
+                messages.insert(at + 1 + i, m)
 
     for rnd in range(max_rounds + 1):
         try:
@@ -270,13 +311,17 @@ def run(conn, question: str, max_rounds: int = MAX_ROUNDS, history: Any = None) 
 
     took = round((time.perf_counter() - t0) * 1000, 1)
     names = [t["tool"] for t in trace]
+    # 轮数只数「模型自己发起的」工具调用：前置的那些是规则干的，不该算模型的轮次，
+    # 否则开了前置看起来像是模型更爱调工具，其实正好相反。
+    model_rounds = len([t for t in trace if t["tool"] != "STOP" and not t.get("prefetch")])
     return {
         "ok": True,
         "question": question,
         "answer": answer,
         "trace": trace,
         "tool_calls": names,
-        "rounds": len([n for n in names if n != "STOP"]),
+        "rounds": model_rounds,
+        "prefetch": prefetched,
         "took_ms": took,
         "model": cfg.DEEPSEEK_MODEL,
         "history": len(past),

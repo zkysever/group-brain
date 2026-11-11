@@ -1,6 +1,6 @@
 # group-brain
 
-群聊记忆体 · v0.9
+群聊记忆体 · v0.10
 
 把 AstrBot 里攒下来的群聊记录 + 两套表情包，变成**一条能搜的索引**，
 再往上加一层「模型自己决定查不查」的 Agent。在线地址：**https://zkysever.com**
@@ -31,12 +31,13 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | 中文 bigram 分词（索引与查询同一套切法） | ✅ |
 | 检索评测（48 条，Recall@5 1.000 / MRR 0.939） | ✅ `EVAL.md` |
 | Agent 模式：模型自己决定调不调工具 | ✅ A2，见 `/agent` |
+| 规则前置：有把握的题跳过「决定调不调」那次往返 | ✅ v0.10，`app/router.py`，同题快 35% |
 | Agent 评测（50 条 + 6 条上下文题，49/50、误触发 0/11） | ✅ `EVAL.md` 第七节 |
 | 口令门（HMAC cookie + 限速，不走邮箱） | ✅ v0.4 |
 | 部署：cloudflared 隧道 + systemd + 三端口 SSH | ✅ `docs/deploy.md` |
 | Web 管理面板（重建索引 / 重导表情包 / 建向量 / 合并 WAL） | ✅ v0.7 |
 | 作品集页（公开，数字实时） | ✅ v0.8，/portfolio |
-| 学习教练：从提交和群活跃度生成周报 | ✅ A4，见 `/coach` 与 `docs/coach.md` |
+| 学习教练：从提交和群活跃度生成周报 | ✅ A4，见 `/coach` 与 `docs/coach.md`；每周一 09:00 自动生成 |
 
 ---
 
@@ -53,6 +54,7 @@ group-brain/
 │  ├─ vectors.py         向量存取与暴力点乘（605 条不值得上向量库）
 │  ├─ embeddings.py      bge-m3 接口
 │  ├─ agent.py           A2：三个工具 + 最多 3 轮的调用循环
+│  ├─ router.py          A3 落地：规则前置（有把握就先跑工具，省一次往返）
 │  ├─ auth.py            口令门：HMAC cookie + 限速
 │  ├─ admin.py           管理面板后端：点按钮 = 跑一次脚本（单任务锁 + 抓日志）
 │  └─ main.py            FastAPI：页面 + 接口
@@ -69,6 +71,7 @@ group-brain/
 │  ├─ gen_report.py      生成周报（--week 2026-W46 / last / --dry）
 │  ├─ bench_routing.py   路由实验：规则 / 小模型 / 大模型 / 混合 四方案对比
 │  ├─ backup_db.py       备份数据库（sqlite3 backup API，带 WAL 也一致）+ 保留最近 N 份
+│  ├─ cron_coach.sh      每周一 09:00 自动生成周报的入口（要 source .env，cron 里没有 key）
 │  ├─ pull_backup.ps1    把服务器上最新备份拉到本机（备份不能和库放同一块盘）
 │  ├─ selftest.py        CI 用的自检：临时库跑一遍主链路，不碰你的数据
 │  └─ db_maintenance.py  WAL 合并 / VACUUM
@@ -240,10 +243,10 @@ python scripts/run_eval.py
   （GitHub 下载 0 字节/秒、镜像 147 KB/s，1.85 GB 要 3.5 小时，不值当）。本地部署留到有 GPU 空的时候再说
 - ~~v0.7：Web 管理面板~~ 已完成。还差的见下面两条
 - ~~**接口带上下文**：`/api/agent` 加 `history` 参数~~ —— 已做（A2 v0.2）：上下文题 0/6 → 6/6，见 `docs/agent.md`
-- **规则前置**：`agent.run()` 前加一层 `rule_route()`，规则有把握就跳过「决定调不调」那一次模型往返。
-  A3 的结论是这条路能省掉几乎全部模型调用，现在缺的是把它接进真实接口再跑一遍 50 条
+- ~~**规则前置**：`agent.run()` 前加一层 `rule_route()`~~ —— 已做（v0.10，`app/router.py`）：同一份 50 条题
+  7209 ms → 4661 ms、模型往返 1.04 → 0.86，正确率不变。第一版把结果塞 system 消息是错的（38 条被前置的题模型全部又自己查一遍），见 `docs/agent.md`「规则前置」一节
 - ~~**工程收尾**~~ —— 已做：CI（`.github/workflows/ci.yml`）、依赖锁版本、LICENSE、每天自动备份 + 拉回本机，见「工程收尾」一节
-- **周报推送**：现在只能自己开网页看，推群/推微信还没做（`docs/coach.md` 第七节第 4 条）
+- **周报推送**：只能自己开网页看。三条路（企业微信 webhook / SMTP / AstrBot 插件）都要新账号或会打扰群里，见 `docs/deploy.md`「定时任务」
 - **备份加校验**：现在备份完只核对行数，还没做「拿备份真恢复一次」的演练
 
 写代码之前先写 README——这条规矩是你自己定的。

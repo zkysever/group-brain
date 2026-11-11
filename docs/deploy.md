@@ -279,7 +279,10 @@ SHELL=/bin/bash
 HOME=/root
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 30 3 * * * cd /opt/group-brain && /opt/group-brain/.venv/bin/python scripts/backup_db.py >> /var/log/gb-backup.log 2>&1
+0 9 * * 1 bash /opt/group-brain/scripts/cron_coach.sh >> /var/log/gb-coach.log 2>&1
 ```
+
+第二条是「每周一 09:00 自动生成上一周的周报」，见下面「定时任务」一节。
 
 ## 为什么不是 `cp group_brain.db`
 
@@ -320,4 +323,44 @@ curl -s localhost:8000/api/health                        # 看 db_ok 与三张�
   但注意：笔记本不常开，排了也不一定跑得到，所以我没替你设。
 - `.env` 不在备份里（里面有 `GATE_SECRET` 和几个 key）。它的内容在你本机
   `~/.dsh/secrets/` 和这五个变量里，丢了重新配一次即可，不算数据损失。
+
+# 定时任务（2026-11-10 加的）
+
+服务器上只有两条 cron，都在 root 的 crontab 里：
+
+| 时间 | 干什么 | 日志 | 脚本 |
+|---|---|---|---|
+| 每天 03:30 | 备份数据库，留 14 份 | `/var/log/gb-backup.log` | `scripts/backup_db.py` |
+| 每周一 09:00 | 生成上一周的周报，写进 `reports` 表 | `/var/log/gb-coach.log` | `scripts/cron_coach.sh` |
+
+## 周报为什么包一层 `.sh`
+
+`cron_coach.sh` 里只有三件事：`cd` 到项目目录、`set -a; . ./.env; set +a`、然后 exec python。
+听起来多余，但两条都是被逼的：
+
+1. **cron 里没有 `DEEPSEEK_API_KEY`**。那个变量是 systemd 通过 `EnvironmentFile=/opt/group-brain/.env`
+   注入给服务的，cron 完全不经过 systemd。不 source `.env` 就会报
+   `RuntimeError: 没配 DEEPSEEK_API_KEY，写不了周报` —— 我第一次就是这么错的。
+2. **crontab 里别写带分号的长链**。`set -a; . ./.env; set +a; python …` 这种，
+   从 Windows 上 `ssh` 过去时引号会被剥掉，命令被拆成好几段执行（顺带把整个 shell 环境 `set` 打印了一遍）。
+
+## 怎么确认周报那条也在跑
+
+跟备份一样，别只看 crontab 文件：把那条临时改成 `* * * * *` 跑一分钟，
+然后看 `tail /var/log/gb-coach.log` 有没有 `[ok] 已存入 reports 表`，
+再看 `reports` 表的 `generated_at` 有没有变新。验完立刻撤掉探针。
+
+```bash
+tail -n 20 /var/log/gb-coach.log
+# 看有什么周报了（用一个临时脚本查，别在 ssh 里拼带引号的一行 python）
+/opt/group-brain/.venv/bin/python /tmp/count_reports.py
+```
+
+## 周报没有「推送」
+
+生成完只落在数据库和 `/coach` 页面上，不会主动发到群里或手机上。原因很实际：
+推 QQ 群要接 AstrBot 的接口（能推，但要写插件、还得防刷屏），
+推微信要企业微信 webhook（要新的账号），发邮件要 SMTP 授权码（要你的邮箱密码）。
+这三条路都要额外账号或会打扰群里，所以先停在「生成好，你自己打开看」这一步。
+真要推，最短的路是 QQ 群——让 bot 每周一在群里发一句「上周周报已生成」。
 

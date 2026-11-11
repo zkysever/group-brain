@@ -219,6 +219,20 @@ def search_memes(
     return _hydrate_memes(conn, _rank_memes(conn, query, m, limit))
 
 
+def _vec_safe(conn, query: str, kind: str, limit: int):
+    """向量这一路挂掉时返回 None，让上层退回关键词。
+
+    为什么不直接抛：向量检索要联网（把问题发给硅基流动换成向量）。
+    那边抖一下，整站搜索就 500，等于把「关键词能用」这个保底也一起弄没了。
+    返回 None 之后 `search_all` 会把这次标成 degraded，前端能看到「这次是降级的结果」。
+    """
+    try:
+        return vectors.search(conn, query, kind, limit)
+    except Exception as e:  # noqa: BLE001  网络层任何异常都不该炸掉整个搜索
+        print(f"[warn] 向量检索失败，退回关键词: {type(e).__name__}: {e}", flush=True)
+        return None
+
+
 def search_all(
     conn: sqlite3.Connection,
     query: str,
@@ -241,18 +255,25 @@ def search_all(
     deep = max(limit * 4, 20)  # 每路多捞一点，融合后才有得选
 
     lists: list[list[tuple[int, float]]] = []
+    degraded: str | None = None
     if want_msg:
         if m in ("keyword", "hybrid"):
             lists.append(_kw_messages(conn, query, deep))
         if m in ("vector", "hybrid"):
-            lists.append(vectors.search(conn, query, "message", deep))
+            vec = _vec_safe(conn, query, "message", deep)
+            if vec is None:
+                degraded = "向量检索失败，这一路退回关键词"
+            else:
+                lists.append(vec)
     if want_meme:
         if m in ("keyword", "hybrid"):
             lists.append([(i + MEME_OFF, s) for i, s in _kw_memes(conn, query, deep)])
         if m in ("vector", "hybrid"):
-            lists.append(
-                [(i + MEME_OFF, s) for i, s in vectors.search(conn, query, "meme", deep)]
-            )
+            vec = _vec_safe(conn, query, "meme", deep)
+            if vec is None:
+                degraded = "向量检索失败，这一路退回关键词"
+            else:
+                lists.append([(i + MEME_OFF, s) for i, s in vec])
 
     lists = [x for x in lists if x]
     if not lists:
@@ -285,6 +306,7 @@ def search_all(
         "took_ms": round(took, 2),
         "count": len(hits),
         "hits": hits,
+        "degraded": degraded,
     }
 
 

@@ -61,6 +61,7 @@
     background: rgba(91,140,255,.12); color: var(--accent);
   }
   .chip.none { background: rgba(139,147,167,.12); color: var(--dim); }
+  .chip.pre { background: rgba(139,147,167,.14); color: var(--dim); }
   .tool { border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 12px; }
   .tool:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
   .tool .name { font-family: ui-monospace, Consolas, monospace; font-size: 13px; color: var(--ok); }
@@ -135,7 +136,9 @@ function renderTrace(trace) {
   } else {
     trace.forEach(t => {
       const label = t.tool + (t.n !== undefined ? ' · ' + t.n + ' 条' : '') + (t.ms ? ' · ' + t.ms + 'ms' : '');
-      chips.appendChild(el('span', 'chip', label));
+      // 前置 = 这次是规则判定后替模型先跑的，不是模型自己要调的。
+      // 区分出来才有意义：它说明「省掉了一次模型往返」，也说明这类题规则已经能接住。
+      chips.appendChild(el('span', 'chip' + (t.prefetch ? ' pre' : ''), (t.prefetch ? '规则前置 · ' : '') + label));
     });
   }
   card.appendChild(chips);
