@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -104,6 +105,49 @@ def main() -> None:
         # 7. 统计接口用到的 stats()
         st = search.stats(conn)
         check("stats()", st.get("messages") == 2 and st.get("memes") == 1, str(st))
+
+        # 8. 服务端记忆（2026-11-12 加的）：写两轮、读回来、数轮数、删干净
+        from app import memory
+
+        sid = memory.new_session()
+        memory.append(conn, sid, "user", "谁说过要吃鱼片")
+        memory.append(conn, sid, "assistant", "是 147 说的")
+        memory.append(conn, sid, "system", "这条应该被白名单扔掉")  # role 不合法 → 忽略
+        past = memory.recent(conn, sid, 20)
+        check(
+            "memory 写入/读取",
+            len(past) == 2 and past[0]["role"] == "user" and past[1]["role"] == "assistant",
+            f"{len(past)} 条",
+        )
+        check("memory 轮数", memory.turn_count(conn, sid) == 1, str(memory.turn_count(conn, sid)))
+        check("memory 清空", memory.forget(conn, sid) == 2 and memory.recent(conn, sid, 20) == [])
+
+        # 9. 增量导入：同一个源导两次，第二次必须一条不新增（这是「别再删记忆」的底线）
+        import sqlite3
+
+        from scripts.import_messages import import_from
+
+        src = Path(tempfile.gettempdir()) / "gb_selftest_src.db"
+        src.unlink(missing_ok=True)
+        s = sqlite3.connect(src)
+        s.execute(
+            "CREATE TABLE platform_message_history (id INTEGER PRIMARY KEY, created_at TEXT,"
+            " user_id TEXT, sender_id TEXT, sender_name TEXT, content TEXT)"
+        )
+        for i, t in ((101, "我想吃鱼片"), (102, "晚安")):
+            s.execute(
+                "INSERT INTO platform_message_history VALUES(?,?,?,?,?,?)",
+                (i, f"2026-01-02 10:00:0{i - 100}.000000", "qq:Group", "u1", "147",
+                 json.dumps({"type": "user", "message": [{"type": "plain", "text": t}]},
+                            ensure_ascii=False)),
+            )
+        s.commit()
+        s.close()
+        r1 = import_from(src)
+        r2 = import_from(src)
+        check("增量导入：首次新增", r1["added"] == 2 and r1["skipped"] == 0, str(r1))
+        check("增量导入：二次全跳过", r2["added"] == 0 and r2["skipped"] == 2, str(r2))
+        src.unlink(missing_ok=True)
     finally:
         conn.close()
 

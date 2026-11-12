@@ -26,6 +26,15 @@ RAW_DIR = ROOT / "data" / "raw"
 
 # 界面上每个按钮对应这里的一项。argv 里第二个元素之后是脚本参数。
 TASKS: dict[str, dict] = {
+    "sync": {
+        "label": "同步群消息（增量）",
+        "script": "sync_messages.py",
+        "args": [],
+        "cost": "约 5–30 秒，只处理新消息",
+        "note": "从 AstrBot 的活性库取一份快照，只导新增的消息，再给新消息算向量。"
+                "每天 04:00 会自动跑一次，这里是手动补一次用。",
+        "timeout": 600,
+    },
     "fts": {
         "label": "重建关键词索引",
         "script": "rebuild_fts.py",
@@ -124,6 +133,17 @@ def start(name: str) -> dict:
     return {"ok": True, "job": name}
 
 
+def _memory_stats(conn) -> dict:
+    """A2 的对话记忆有多少。表可能还不存在（老库），所以整个函数都不能抛。"""
+    try:
+        row = conn.execute(
+            "SELECT COUNT(DISTINCT session_id) s, COUNT(*) n FROM agent_turns"
+        ).fetchone()
+        return {"sessions": int(row["s"] or 0), "turns": int(row["n"] or 0) // 2}
+    except Exception:                            # noqa: BLE001
+        return {"sessions": 0, "turns": 0}
+
+
 def state(conn) -> dict:
     """面板上要显示的全部东西，一次拿全，别让前端发一堆请求。"""
     n_msg = conn.execute("SELECT count(*) c FROM messages").fetchone()["c"]
@@ -166,6 +186,7 @@ def state(conn) -> dict:
             "vectors": n_vec,
             "messages_fts": n_fts,
             "fts_ok": n_fts == n_msg,
+            "memory": _memory_stats(conn),
         },
         "files": {
             "db": fsize(DB_PATH),

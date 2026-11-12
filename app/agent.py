@@ -32,11 +32,11 @@ from . import search
 # 关掉之后行为和 v0.9 完全一致——这种开关要留着，不然改了东西没法证明改好了。
 PREFETCH = os.environ.get("AGENT_PREFETCH", "1") != "0"
 
-MAX_ROUNDS = 3          # 超过就停手：再转下去只是在烧 token
-HIT_CHARS = 120         # 单条结果截断长度，防止工具输出把上下文顶爆
-MAX_HITS = 5
-HISTORY_TURNS = 3       # 只带最近 3 轮对话：再往前带，token 花在模型记不住的地方
-HISTORY_CHARS = 200     # 单条历史截断
+MAX_ROUNDS = cfg.AGENT_MAX_ROUNDS   # 超过就停手：再转下去只是在烧 token
+HIT_CHARS = cfg.AGENT_HIT_CHARS     # 单条结果截断长度，防止工具输出把上下文顶爆
+MAX_HITS = cfg.AGENT_MAX_HITS
+HISTORY_TURNS = cfg.AGENT_HISTORY_TURNS   # 往后带几轮对话（默认 20，以前是 3）
+HISTORY_CHARS = cfg.AGENT_HISTORY_CHARS   # 单条历史截断
 
 SYSTEM = """你是「群聊记忆体」的助手，只能通过工具查下面这份数据：
 一个 QQ 群的真实聊天记录，和一套表情包图库。

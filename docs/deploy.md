@@ -351,13 +351,17 @@ MEME_PACKS=/opt/group-brain/meme-packs .venv/bin/python scripts/restore_check.py
 
 # 定时任务（2026-11-10 加的）
 
-服务器上现在有三条 cron，都在 root 的 crontab 里：
+服务器上现在有四条 cron，都在 root 的 crontab 里：
 
 | 时间 | 干什么 | 日志 | 脚本 |
 |---|---|---|---|
+| 每天 03:20 | 从 AstrBot 活性库增量同步群消息，再补新消息的向量 | `/var/log/gb-sync.log` | `scripts/sync_messages.py` |
 | 每天 03:30 | 备份数据库，留 14 份 | `/var/log/gb-backup.log` | `scripts/backup_db.py` |
 | 每周一 09:00 | 生成上一周的周报，写进 `reports` 表 | `/var/log/gb-coach.log` | `scripts/cron_coach.sh` |
 | 每月 1 号 04:00 | 拿最新备份做一次恢复演练（只验证不修复） | `/var/log/gb-restore.log` | `scripts/restore_check.py` |
+
+顺序不是随手排的：**先同步（03:20）再备份（03:30）**，这样每天早上那份备份里装的是当天最新的数据。
+反过来就是「备份永远比数据晚一天」。
 
 ## 周报为什么包一层 `.sh`
 
@@ -392,4 +396,77 @@ tail -n 20 /var/log/gb-coach.log
 推微信要企业微信 webhook（要新的账号），发邮件要 SMTP 授权码（要你的邮箱密码）。
 这三条路都要额外账号或会打扰群里，所以先停在「生成好，你自己打开看」这一步。
 真要推，最短的路是 QQ 群——让 bot 每周一在群里发一句「上周周报已生成」。
+
+
+# 数据同步：让库里的群消息自己变新（2026-11-12 加的）
+
+## 以前是怎么更新的（以及为什么不行）
+
+到这里为止，「更新数据」一直是一件**人来干的活**：某个人 SSH 上去把 AstrBot 的
+`data_v4.db` 拷下来，放本地 `data/raw/`，再跑一遍 `scripts/import_messages.py` 全量重导。
+
+两个问题叠在一起：
+
+1. **没人做就永远不更新**。2026-11-12 发现库里的时间范围还停在 `2026-11-05 07:12`，一周的消息全没有；
+2. **全量重导还是「删库重灌」**——`import_messages.py` 里第一句就是 `DELETE FROM messages`。
+   数据一过期，中间那几天就补不回来了；而且每次重导都在删了再写，用户的原话是「别再删它记忆了」。
+
+## 现在怎么更新
+
+```
+AstrBot 活性库 /opt/qqbot/astrbot-data/data_v4.db
+        │  sqlite backup API（不是 cp，见下）
+        ▼
+   /tmp/gb_sync_<ts>.db   一致快照
+        │  scripts/import_messages.py::import_from()  增量：只新增/只更新变化的
+        ▼
+   data/group_brain.db     messages + messages_fts
+        │  scripts/build_vectors.py --kind message    只算缺的那些
+        ▼
+   vectors 表补上
+```
+
+一条命令：`scripts/sync_messages.py`。服务器每天 **03:20** 自动跑一次（cron），
+日志 `/var/log/gb-sync.log`；管理面板上也有一键「同步群消息（增量）」。
+
+## 为什么用 backup API 而不是 `cp`
+
+AstrBot 在跑、库是 **WAL 模式**。`cp data_v4.db` 只拷主库文件，**-wal 里还没合并的那部分会丢**——
+而最新的消息恰好就在那里。`sqlite3.Connection.backup()` 会把这些一起带过来，拿到的是一份前后一致的快照。
+（备份脚本 `backup_db.py` 也是同一个道理，用的是同一个接口。）
+
+## 增量是怎么判的
+
+对每一条源消息：`(id)` 在库里有没有、`(text, ts)` 变没变。
+
+| 情况 | 动作 |
+|---|---|
+| 库里没有 | 插入 + 建索引 |
+| 有，但 `text`/`ts` 变了（机器人改名、消息重发） | `INSERT OR REPLACE` 那一行 + **先 `DELETE FROM messages_fts WHERE msg_id=?` 再插** |
+| 没变 | 跳过，连分词都不做 |
+
+`messages_fts` 是普通 fts5 表（不是 external content），所以改一行必须自己删自己那条，
+否则检索会命中一份已经不存在的旧分词。
+
+想回到老行为（整表重灌）加 `--full`，只在数据真的错乱时用。
+
+## 怎么确认它真的在跑
+
+```bash
+# 手动跑一次，看新增多少条
+cd /opt/group-brain && set -a && . ./.env && set +a && .venv/bin/python scripts/sync_messages.py
+# 预期输出：[ok] 原始 N 条 → 新增 x / 更新 y / 没变 z，库里现在 M 条
+
+tail -n 20 /var/log/gb-sync.log      # cron 那条的日志
+```
+
+页面上的核对点：管理面板「聊天消息」那个数字有没有变大；`/api/health` 的 `messages` 字段同理。
+
+## 已知限制
+
+- **只同步消息，不同步表情包**。表情包来自本机的两个 pack 目录，跟 AstrBot 无关。
+- **同步失败不会重试**。cron 只跑一次，失败就看日志、手动跑一次——比「偷偷重试三次」好排查。
+- **没有「最后同步时间」的展示**。现在只能从 `messages` 里最大 `ts` 推断，或者看日志。
+  真要看，`SELECT MAX(ts) FROM messages;`。
+
 

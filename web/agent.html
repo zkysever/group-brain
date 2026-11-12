@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>group-brain · Agent v0.3</title>
+<title>group-brain · Agent v0.4</title>
 <style>
   :root {
     --bg: #0f1115;
@@ -74,13 +74,20 @@
   .err { color: var(--bad); }
   .foot { color: var(--dim); font-size: 12px; margin-top: 24px; }
   .foot a { color: var(--accent); text-decoration: none; }
+  /* 清空记忆：故意做得又小又不显眼——它是保险丝，不是功能按钮 */
+  button.mini {
+    background: transparent; border: 1px solid rgba(139,147,167,.35);
+    color: var(--dim); font-size: 11px; padding: 2px 8px; margin-left: 6px;
+    border-radius: 99px; cursor: pointer;
+  }
+  button.mini:hover { color: var(--text); border-color: rgba(139,147,167,.6); }
   .spin { display: inline-block; animation: sp 1s linear infinite; }
   @keyframes sp { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>group-brain<span class="badge">Agent v0.3</span></h1>
+  <h1>group-brain<span class="badge">Agent v0.4</span></h1>
   <div class="sub">把检索当工具交给模型：它自己决定调不调、调哪个。下面是它的调用记录，可以挑错。</div>
 
   <div class="row">
@@ -93,6 +100,8 @@
 
   <div class="foot">
     同一个问题，<a href="/">直接检索</a>只有结果没有解释；这里多了「它有没有乱调工具」。
+    <span style="color:var(--dim)">· 记忆存在服务器上，刷新/换设备都还在</span>
+    <button id="forget" class="mini">清空记忆</button>
   </div>
 </div>
 
@@ -167,15 +176,19 @@ function renderTrace(trace) {
   return card;
 }
 
-// 最近几轮对话。存在的唯一理由是：「刚才那句话是谁说的」「上一条图谁发的」
-// 这类问句，单轮接口里根本没有可指的东西，模型只能反问或者瞎猜。
-const HISTORY = [];
-const HISTORY_TURNS = 3;
+// 记忆已经搬到服务端（2026-11-12）：浏览器只留一个 gb_sess cookie，
+// 问答记录在服务器上的 agent_turns 表里，所以刷新、换设备都还在。
+// 前端不再拼 history 参数——客户端说的「上文」本来就不该被信任。
 
-function historyParam() {
-  const msgs = HISTORY.slice(-HISTORY_TURNS * 2);
-  return msgs.length ? '&history=' + encodeURIComponent(JSON.stringify(msgs)) : '';
-}
+document.getElementById('forget').onclick = async () => {
+  if (!confirm('清空这个会话的记忆？（服务端记录会一起删掉）')) return;
+  const r = await fetch('/api/agent/forget', { method: 'POST' });
+  const d = await r.json().catch(() => ({}));
+  outEl.innerHTML = '';
+  const c = el('div', 'card');
+  c.appendChild(el('div', 'answer', '记忆已清空，删了 ' + (d.deleted || 0) + ' 条。'));
+  outEl.appendChild(c);
+};
 
 async function ask() {
   const q = qEl.value.trim();
@@ -187,7 +200,7 @@ async function ask() {
   outEl.appendChild(loading);
 
   try {
-    const r = await fetch('/api/agent?q=' + encodeURIComponent(q) + historyParam());
+    const r = await fetch('/api/agent?q=' + encodeURIComponent(q));
     if (r.status === 401) { location.href = '/login'; return; }
     const d = await r.json();
 
@@ -202,16 +215,10 @@ async function ask() {
     const ans = el('div', 'card');
     ans.appendChild(el('h2', null, '回答'));
     ans.appendChild(el('div', 'answer', d.answer || '（空的）'));
-    const pairs = Math.floor(HISTORY.length / 2);
     ans.appendChild(el('div', 'meta', '模型 ' + d.model + ' · ' + d.rounds + ' 轮工具 · 一共 ' + d.took_ms + 'ms'
-      + ' · 带了 ' + pairs + ' 轮上下文'));
+      + ' · 记得 ' + (d.memory_turns || 0) + ' 轮（服务端）'));
     outEl.appendChild(ans);
     outEl.appendChild(renderTrace(d.trace));
-
-    // 只记住「问了什么 / 答了什么」，工具轨迹不往回带（带着只会让上下文变贵、变乱）
-    HISTORY.push({ role: 'user', content: q });
-    HISTORY.push({ role: 'assistant', content: d.answer || '' });
-    while (HISTORY.length > HISTORY_TURNS * 2) HISTORY.shift();
   } catch (e) {
     outEl.innerHTML = '';
     const c = el('div', 'card');

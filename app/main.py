@@ -19,10 +19,10 @@ import requests
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from . import admin, agent, auth, coach, db, search
+from . import admin, agent, auth, coach, db, memory, search
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.10.0")
+app = FastAPI(title="group-brain", version="0.11.0")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
 PUBLIC = {"/login", "/api/health", "/favicon.ico", "/portfolio"}
@@ -187,19 +187,64 @@ def agent_page() -> str:
 
 @app.get("/api/agent")
 def api_agent(
+    request: Request,
     q: str = Query("", description="用户的一句话"),
-    rounds: int = Query(3, ge=0, le=5, description="最多允许几轮工具调用"),
-    history: str = Query("", description='刚才的对话，JSON： [{"role":"user","content":"…"}]'),
+    rounds: int = Query(0, ge=0, le=6, description="最多允许几轮工具调用，0 = 用配置默认值"),
+    history: str = Query("", description='（兼容旧客户端）刚才的对话，JSON： [{"role":"user","content":"…"}]'),
 ):
     """A2：把检索当工具交给模型，由它自己决定调不调、调哪个。
 
-    history 是给「刚才那句话是谁说的」「上一条图谁发的」这类指代用的。
-    不传就等于单轮问答，指代只能靠模型瞎猜——所以前端每次都会带上最近几轮。
+    记忆现在存在服务端（2026-11-12 改的）：浏览器带一个 `gb_sess` cookie，
+    每轮问答写进 `agent_turns` 表，下一次提问从库里取最近 N 轮。
+    好处是刷新、换设备都还在；坏处是得多一次读写库——所以顺手加了 `/api/agent/forget`。
+
+    `history` 参数还留着，但只是给老客户端兜底；服务端有记忆时以服务端为准。
     """
     q = q.strip()
     if not q:
         return {"ok": False, "error": "问题不能为空", "answer": "", "trace": []}
-    return agent.run(conn(), q, max_rounds=rounds, history=history)
+
+    c = conn()
+    session = (request.cookies.get("gb_sess") or "").strip()
+    fresh = not session
+    if fresh:
+        session = memory.new_session()
+
+    past = memory.recent(c, session, agent.HISTORY_TURNS)
+    if not past and history:
+        # 旧的浏览器内存方案：只有在服务端确实没记录时才用它，避免两套上下文打架
+        past = agent._norm_history(history)
+
+    res = agent.run(c, q, max_rounds=rounds or agent.MAX_ROUNDS, history=past)
+
+    # 只记问答，不记工具轨迹：工具结果每条几百字，带进下一轮纯属浪费
+    if res.get("ok"):
+        memory.append(c, session, "user", q)
+        memory.append(c, session, "assistant", res.get("answer", ""))
+        memory.trim(c, session, memory.KEEP_TURNS)
+    res["memory_turns"] = memory.turn_count(c, session)
+    res["session_new"] = fresh
+
+    resp = JSONResponse(res)
+    if fresh:
+        resp.set_cookie(
+            "gb_sess",
+            session,
+            max_age=400 * 24 * 3600,
+            httponly=True,
+            samesite="lax",
+            path="/",
+        )
+    return resp
+
+
+@app.api_route("/api/agent/forget", methods=["GET", "POST"])
+def api_agent_forget(request: Request):
+    """清空当前浏览器的对话记忆。用户要求「别再删记忆」，但总得留个能删的按钮。"""
+    session = (request.cookies.get("gb_sess") or "").strip()
+    if not session:
+        return {"ok": True, "deleted": 0}
+    return {"ok": True, "deleted": memory.forget(conn(), session)}
 
 
 @app.get("/coach", response_class=HTMLResponse)

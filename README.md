@@ -1,6 +1,6 @@
 # group-brain
 
-群聊记忆体 · v0.10
+群聊记忆体 · v0.11
 
 把 AstrBot 里攒下来的群聊记录 + 两套表情包，变成**一条能搜的索引**，
 再往上加一层「模型自己决定查不查」的 Agent。在线地址：**https://zkysever.com**
@@ -32,6 +32,8 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | 检索评测（48 条，Recall@5 1.000 / MRR 0.939） | ✅ `EVAL.md` |
 | Agent 模式：模型自己决定调不调工具 | ✅ A2，见 `/agent` |
 | 规则前置：有把握的题跳过「决定调不调」那次往返 | ✅ v0.10，`app/router.py`，同题快 35% |
+| Agent 记忆存在服务端（刷新/换设备都还在） | ✅ v0.11，`app/memory.py` + `agent_turns` 表 |
+| 群消息增量同步（每天 03:20 自动） | ✅ v0.11，`scripts/sync_messages.py` |
 | Agent 评测（50 条 + 6 条上下文题，49/50、误触发 0/11） | ✅ `EVAL.md` 第七节 |
 | 口令门（HMAC cookie + 限速，不走邮箱） | ✅ v0.4 |
 | 部署：cloudflared 隧道 + systemd + 三端口 SSH | ✅ `docs/deploy.md` |
@@ -54,6 +56,7 @@ group-brain/
 │  ├─ vectors.py         向量存取与暴力点乘（605 条不值得上向量库）
 │  ├─ embeddings.py      bge-m3 接口
 │  ├─ agent.py           A2：三个工具 + 最多 3 轮的调用循环
+│  ├─ memory.py          A2 的记忆：按 session 存服务端（刷新/换设备都还在）
 │  ├─ router.py          A3 落地：规则前置（有把握就先跑工具，省一次往返）
 │  ├─ auth.py            口令门：HMAC cookie + 限速
 │  ├─ admin.py           管理面板后端：点按钮 = 跑一次脚本（单任务锁 + 抓日志）
@@ -61,7 +64,8 @@ group-brain/
 ├─ scripts/
 │  ├─ init_db.py         建表
 │  ├─ import_memes.py    导入表情包
-│  ├─ import_messages.py 导入群聊
+│  ├─ import_messages.py 导入群聊（增量，默认不删任何已有消息）
+│  ├─ sync_messages.py   从 AstrBot 活性库增量同步（每天 03:20 cron 跑）
 │  ├─ build_vectors.py   建向量（--force 全量重建）
 │  ├─ run_eval.py        检索评测（三种模式并排）
 │  ├─ run_agent_eval.py  Agent 评测（50 条 + 6 条上下文题）
@@ -112,7 +116,9 @@ GET /api/search?q=大肥鱼&kind=all&limit=10&mode=auto   # auto/keyword/vector/
 GET /api/context?id=8&before=4&after=4                 # 记忆回放：前后几条
 GET /api/stats
 GET /api/meme/{id}                                     # 直接返回图片
-GET /api/agent?q=谁说过要吃鱼片&history=[...]           # Agent 模式；history 是刚才的对话（JSON），用来解「刚才那句」
+GET /api/agent?q=谁说过要吃鱼片                          # Agent 模式；记忆按 cookie 里的 gb_sess 从服务端取
+POST /api/agent/forget                                    # 清空这个会话的记忆
+# 旧客户端还能传 &history=[...]，但服务端有记忆时以服务端为准
 GET /portfolio                                         # 作品集页（唯一不要口令的页面）
 GET /api/health                                        # 会真查一次库，回 db_ok
 GET /login · POST /login · GET /logout                 # 口令门

@@ -66,9 +66,20 @@ CREATE TABLE IF NOT EXISTS reports (
     model        TEXT
 );
 
+-- A2 的对话记忆（2026-11-12）：以前「刚才那句」只存在浏览器内存里，刷新就没了。
+-- 现在按 session 存服务端，换设备/刷新都还在。session 是浏览器 cookie 里的随机串。
+CREATE TABLE IF NOT EXISTS agent_turns (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    ts         TEXT NOT NULL,
+    role       TEXT NOT NULL,   -- 只有 user / assistant 两种，写库前就白名单过滤
+    content    TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_name);
 CREATE INDEX IF NOT EXISTS idx_memes_tag ON memes(tag);
+CREATE INDEX IF NOT EXISTS idx_agent_turns_session ON agent_turns(session_id, id);
 """
 
 

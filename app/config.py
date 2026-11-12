@@ -61,3 +61,17 @@ SMALL_MODEL = os.environ.get("SMALL_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 DEEPSEEK_KEY = _read_secret("DEEPSEEK_API_KEY", "deepseek-api-key.txt")
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+
+# --- A2 的记忆预算（2026-11-12 放宽，用户要求「别删它记忆」）---
+# 以前是 3 轮 / 200 字 / 120 字 / 5 条，纯为省钱；现在历史放宽到能真的记住一段对话。
+# 全部可用环境变量覆盖，cost 失控时可以随时在 .env 里拧回来，不用改代码。
+#
+# 为什么「工具结果截断」只从 120 放到 240、没有放到 400：
+#   实测过 400 字 / 8 条那组——50 条评测 47/50，还多出一次误触发（「上一条图是谁发的」不该调却调了）；
+#   240 字 / 6 条这组是 48/50、误触发 0/12、平均 2.8 秒。
+#   结论：该放宽的是**历史轮数**（它解的是指代，是记忆），不是**工具输出长度**（那只是噪音）。
+AGENT_HISTORY_TURNS = int(os.environ.get("AGENT_HISTORY_TURNS", "20"))  # 往后带几轮对话（以前 3）
+AGENT_HISTORY_CHARS = int(os.environ.get("AGENT_HISTORY_CHARS", "600"))  # 单条历史截断（以前 200）
+AGENT_HIT_CHARS = int(os.environ.get("AGENT_HIT_CHARS", "240"))          # 单条检索结果截断（以前 120）
+AGENT_MAX_HITS = int(os.environ.get("AGENT_MAX_HITS", "6"))              # 一次工具最多返回几条（以前 5）
+AGENT_MAX_ROUNDS = int(os.environ.get("AGENT_MAX_ROUNDS", "3"))          # 最多几轮工具调用（不动，多给一轮只会让它多绕）
