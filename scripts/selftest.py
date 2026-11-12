@@ -148,6 +148,19 @@ def main() -> None:
         check("增量导入：首次新增", r1["added"] == 2 and r1["skipped"] == 0, str(r1))
         check("增量导入：二次全跳过", r2["added"] == 0 and r2["skipped"] == 2, str(r2))
         src.unlink(missing_ok=True)
+
+        # 10. 纠错记忆（v0.13）：教一句、能命中、同一句再教是覆盖不是叠加、能删
+        from app import learn
+
+        cid = learn.record(conn, "帮我代一个白系AP", "白系 AP 是《舞萌》里的一首歌", wrong="不知道")
+        hit = learn.find(conn, "帮我代一个白系ap？")  # 只差大小写和标点，必须命中
+        check("learn 归一化命中", bool(hit) and hit["id"] == cid, str(hit and hit["right"]))
+        loose = learn.find(conn, "帮我代一个白系AP啊")  # 多一个字，靠包含规则命中
+        check("learn 包含命中", bool(loose) and loose["right"].startswith("白系 AP"))
+        check("learn 不会乱吃", learn.find(conn, "今天几号") is None)
+        learn.record(conn, "帮我代一个白系AP", "改一版答案")
+        check("learn 再教是覆盖", learn.stats(conn)["total"] == 1, str(learn.stats(conn)))
+        check("learn 删掉", learn.delete(conn, cid) == 1 and learn.find(conn, "帮我代一个白系AP") is None)
     finally:
         conn.close()
 

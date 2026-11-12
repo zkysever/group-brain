@@ -40,6 +40,7 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | Web 管理面板（重建索引 / 重导表情包 / 建向量 / 合并 WAL） | ✅ v0.7 |
 | 作品集页（公开，数字实时） | ✅ v0.8，/portfolio |
 | 学习教练：从提交和群活跃度生成周报 | ✅ A4，见 `/coach` 与 `docs/coach.md`；每周一 09:00 自动生成 |
+| 纠错记忆：答错一次就能教它，下次同样的话直接照你说的答（4302ms → 0.2ms） | ✅ v0.13，`app/learn.py` + `corrections` 表 |
 
 ---
 
@@ -57,6 +58,7 @@ group-brain/
 │  ├─ embeddings.py      bge-m3 接口
 │  ├─ agent.py           A2：三个工具 + 最多 3 轮的调用循环
 │  ├─ memory.py          A2 的记忆：按 session 存服务端（刷新/换设备都还在）
+│  ├─ learn.py           纠错记忆：用户教过的问法→答案，命中就原样答（不让模型改写）
 │  ├─ router.py          A3 落地：规则前置（有把握就先跑工具，省一次往返）
 │  ├─ auth.py            口令门：HMAC cookie + 限速
 │  ├─ admin.py           管理面板后端：点按钮 = 跑一次脚本（单任务锁 + 抓日志）
@@ -120,6 +122,9 @@ GET /api/stats
 GET /api/meme/{id}                                     # 直接返回图片
 GET /api/agent?q=谁说过要吃鱼片                          # Agent 模式；记忆按 cookie 里的 gb_sess 从服务端取
 POST /api/agent/forget                                    # 清空这个会话的记忆
+POST /api/agent/fix?q=&right=&wrong=                      # 教它一句（v0.13，同问再教=覆盖）
+GET  /api/agent/fixes                                     # 它学会了哪些（带 hits，被用过几次）
+POST /api/agent/fix/delete?id=                             # 删掉教过的一条
 # 旧客户端还能传 &history=[...]，但服务端有记忆时以服务端为准
 GET /portfolio                                         # 作品集页（唯一不要口令的页面）
 GET /api/health                                        # 会真查一次库，回 db_ok
@@ -258,6 +263,9 @@ python scripts/bench_fusion.py --grid "k=60 w=1,1.5,2"        # 扫融合旋钮
   7209 ms → 4661 ms、模型往返 1.04 → 0.86，正确率不变。第一版把结果塞 system 消息是错的（38 条被前置的题模型全部又自己查一遍），见 `docs/agent.md`「规则前置」一节
 - ~~**工程收尾**~~ —— 已做：CI（`.github/workflows/ci.yml`）、依赖锁版本、LICENSE、每天自动备份 + 拉回本机，见「工程收尾」一节
 - ~~**评测加难**~~ —— 已做（v0.12）：`eval/queries_hard.jsonl` 14 条「换说法」题，关键词 0.714 → 融合 1.000；`scripts/bench_fusion.py` 扫出 `RRF_VEC_W=1.5`（两套 MRR 都涨）。还剩一条 `K=20/W=3.0` 的备选，等难集扩到 50 条再定
+- ~~**学习能力（第 1 层）：纠错回路**~~ —— 已做（v0.13）：`corrections` 表 + `/api/agent/fix`，教过的问题下次 0.2ms 直接照答（原来 4302ms / 2 轮工具）。见 `docs/agent.md`「纠错记忆」
+- **学习能力（第 2 层）：事实抽取** —— 从群聊里抽「谁喜欢什么 / 群的规矩」，抽完要能人工审一遍再入库（不审就会被它自己编的东西污染）
+- **学习能力（第 3 层）：规则自学习** —— 从真实对话里挖「问法 → 该调哪个工具」，自动生成 `router.py` 的规则；规则多了会互相打架，必须有评测兜底
 - **周报推送**：只能自己开网页看。三条路（企业微信 webhook / SMTP / AstrBot 插件）都要新账号或会打扰群里，见 `docs/deploy.md`「定时任务」
 - ~~**备份加校验**~~ —— 已做（v0.10）：`scripts/restore_check.py` 真恢复一次并真查一次，本机与服务器都验过；服务器每月 1 号 04:00 自动跑，日志 `/var/log/gb-restore.log`
 

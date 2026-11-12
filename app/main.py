@@ -19,10 +19,10 @@ import requests
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from . import admin, agent, auth, coach, db, memory, search
+from . import admin, agent, auth, coach, db, learn, memory, search
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.12.0")
+app = FastAPI(title="group-brain", version="0.13.0")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
 PUBLIC = {"/login", "/api/health", "/favicon.ico", "/portfolio"}
@@ -245,6 +245,38 @@ def api_agent_forget(request: Request):
     if not session:
         return {"ok": True, "deleted": 0}
     return {"ok": True, "deleted": memory.forget(conn(), session)}
+
+
+@app.post("/api/agent/fix")
+def api_agent_fix(
+    request: Request,
+    q: str = Query(..., description="用户当时问的那句话"),
+    right: str = Query(..., description="正确答案"),
+    wrong: str = Query("", description="它当时答错的（可选，留着方便回头看）"),
+):
+    """教它一句（v0.13 纠错记忆）。
+
+    参数走 query string 而不是表单：服务器没装 python-multipart，
+    `Form(...)` 会让启动时直接报错，为一条纠正去加依赖不值得。
+    """
+    session = (request.cookies.get("gb_sess") or "").strip()
+    try:
+        cid = learn.record(conn(), q, right, wrong=wrong, source="web", session_id=session)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "id": cid, "total": learn.stats(conn())["total"]}
+
+
+@app.get("/api/agent/fixes")
+def api_agent_fixes(limit: int = Query(50, ge=1, le=200)):
+    """它现在「学会」了哪些（按时间倒序）。学错了能删，否则错误会被一直放大。"""
+    c = conn()
+    return {"ok": True, **learn.stats(c), "rows": learn.all_rows(c, limit)}
+
+
+@app.post("/api/agent/fix/delete")
+def api_agent_fix_delete(id: int = Query(..., description="corrections 表的 id")):
+    return {"ok": True, "deleted": learn.delete(conn(), id)}
 
 
 @app.get("/coach", response_class=HTMLResponse)

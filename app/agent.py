@@ -25,6 +25,7 @@ from typing import Any
 import requests
 
 from . import config as cfg
+from . import learn
 from . import router
 from . import search
 
@@ -223,6 +224,37 @@ def run(conn, question: str, max_rounds: int = MAX_ROUNDS, history: Any = None) 
 
     t0 = time.perf_counter()
     past = _norm_history(history)
+
+    # 先查有没有被纠正过（v0.13）。命中就原样答，不叫模型：
+    # 纠正的语义常常很窄，让模型"用自己的话说一遍"它会顺手补编细节，等于没纠成。
+    # 放在 available() 之后只是为了保持返回结构一致（没 key 时也照样能答）。
+    hit = learn.find(conn, question)
+    if hit:
+        return {
+            "ok": True,
+            "question": question,
+            "answer": hit["right"],
+            "trace": [
+                {
+                    "tool": "LEARNED",
+                    "args": {"id": hit["id"], "question": hit["question"]},
+                    "n": 0,
+                    "ms": 0,
+                    "mode": "-",
+                    "hits": [],
+                    "note": "这条是用户教过的（hits=%d）" % int(hit.get("hits") or 0),
+                }
+            ],
+            "tool_calls": ["LEARNED"],
+            "rounds": 0,
+            "prefetch": [],
+            "took_ms": round((time.perf_counter() - t0) * 1000, 1),
+            "model": "learned",
+            "history": len(past),
+            "learned": True,
+            "learn_id": hit["id"],
+        }
+
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM}]
     if past:
         messages.append({"role": "system", "content": "下面是刚才的对话（「刚才那句」「上一条」指的是它）："})

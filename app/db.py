@@ -76,10 +76,29 @@ CREATE TABLE IF NOT EXISTS agent_turns (
     content    TEXT NOT NULL
 );
 
+-- 纠错记忆（2026-11-12，v0.13）：它答错过的地方，用户点一下「不对，我教它」，
+-- 下次同一个问题直接照用户给的答案答。
+-- 和 agent_turns 的区别：agent_turns 是「流水账」（发生过什么），
+-- corrections 是「结论」（应该怎么答）。流水账不会改变行为，结论会。
+-- norm 是 question 归一化后的串（去标点空白、全角转半角、小写），用来做精确/包含匹配；
+-- source 记「这条是谁教的」，将来区分「网页纠正」和「群里的纠正」。
+CREATE TABLE IF NOT EXISTS corrections (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TEXT NOT NULL,
+    question   TEXT NOT NULL,   -- 用户当时问的那句话，原样
+    norm       TEXT NOT NULL,   -- 归一化后的，只用来匹配
+    wrong      TEXT,            -- 它当时答错的（可能为空）
+    right      TEXT NOT NULL,   -- 用户给的正确答案
+    source     TEXT,            -- web / qq / admin
+    session_id TEXT,
+    hits       INTEGER NOT NULL DEFAULT 0   -- 被用过几次，用来判断这条还有没有用
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_name);
 CREATE INDEX IF NOT EXISTS idx_memes_tag ON memes(tag);
 CREATE INDEX IF NOT EXISTS idx_agent_turns_session ON agent_turns(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_corrections_norm ON corrections(norm);
 """
 
 
