@@ -46,6 +46,9 @@
   .msg.ok{background:#14251d;color:#9fe8c0;border:1px solid #23453a}
   footer{margin-top:26px;color:#5f6779;font-size:12.5px;line-height:1.8}
   .kbd{font-family:ui-monospace,Consolas,monospace;background:var(--panel2);padding:1px 6px;border-radius:6px}
+  .rephead{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .rephead h2{margin:0}
+  button.mini{font-size:12.5px;padding:5px 11px;border-radius:8px}
 </style>
 </head>
 <body>
@@ -67,7 +70,10 @@
   </div>
 
   <div class="card" id="repcard" style="display:none">
-    <h2 id="rephead">周报</h2>
+    <div class="rephead">
+      <h2 id="rephead">周报</h2>
+      <button class="ghost mini" id="copy" disabled>复制全文</button>
+    </div>
     <div class="report" id="report"></div>
     <details style="margin-top:14px">
       <summary>它看到的事实清单（报告里的每一句都应该能在这里找到出处）</summary>
@@ -112,12 +118,50 @@ function render(text) {
   return esc.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 }
 
+let lastText = '';   // 当前这份周报的纯文本，复制按钮就靠它
+
 function showReport(week, text, facts) {
   $('#repcard').style.display = '';
   $('#rephead').textContent = '周报 · ' + week;
   $('#report').innerHTML = render(text);
   $('#facts').textContent = facts || '（这一份没有留档事实清单）';
+  lastText = text || '';
+  const btn = $('#copy');
+  btn.disabled = !lastText;
+  btn.textContent = '复制全文';
 }
+
+// 优先用剪贴板 API；不行就退回老办法（execCommand 在 http 下也能用）
+async function copyText(t) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(t);
+      return true;
+    }
+  } catch (e) { /* 落到下面的降级方案 */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = t;
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+$('#copy').addEventListener('click', async () => {
+  const btn = $('#copy');
+  if (!lastText) return;
+  const ok = await copyText(lastText);
+  btn.textContent = ok ? '已复制' : '复制失败，手动选吧';
+  setTimeout(() => { btn.textContent = '复制全文'; }, 2000);
+});
 
 async function loadHistory() {
   const r = await fetch('/api/coach');
