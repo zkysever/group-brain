@@ -43,17 +43,53 @@ MEMORY = re.compile(
 DEIXIS = re.compile(r"(刚才那|上一条|那句话|那句|这张|那张|那个人|他|她)")
 
 
-def rule_route(q: str) -> tuple[list[str], str, str]:
+def learned_rules(conn) -> list[tuple[str, list[str]]]:
+    """读「人工点头过」的自学规则（rules 表 enabled=1）。
+
+    这些规则由 `scripts/mine_rules.py` 从评测集里挖出来，通过了留出集影子测试，
+    再经人点头才 enabled=1。表不存在或读失败就当没有——规则是加分项，不该让主流程挂。
+    """
+    try:
+        rows = conn.execute(
+            "SELECT pattern, tool FROM rules WHERE enabled = 1 ORDER BY evidence DESC, length(pattern) DESC"
+        ).fetchall()
+    except Exception:                            # noqa: BLE001
+        return []
+    out = []
+    for r in rows:
+        tools = [t for t in (r["tool"] or "").split(",") if t]
+        if r["pattern"] and tools:
+            out.append((r["pattern"], tools))
+    return out
+
+
+def _flat(q: str) -> str:
+    return "".join(ch for ch in q if ch.strip())
+
+
+def rule_route(
+    q: str, rules: list[tuple[str, list[str]]] | None = None
+) -> tuple[list[str], str, str]:
     """返回 (工具集合, 置信度 high/low, 说明)。
 
     置信度只用来决定「要不要前置预查」，不影响工具本身：
     就算 low，模型照样能自己调。
+
+    `rules` 是自学规则（`learned_rules` 读出来的）。**先查它们**，
+    因为它们比这里手写的正则更具体（是从真实问法里挖出来的 n-gram）；
+    但含指代词时不采信——规则天生处理不了「刚才那句」，这是 A3 就量出来的结论。
     """
     s = (q or "").strip()
     if not s:
         return [], "low", "空问题"
     if GREET.match(s):
         return [], "high", "寒暄短句"
+
+    if rules and not DEIXIS.search(s):
+        flat = _flat(s)
+        for pattern, tools in rules:
+            if pattern and pattern in flat:
+                return list(tools), "high", f"自学规则「{pattern}」"
 
     tools: list[str] = []
     if MEME.search(s):
@@ -79,11 +115,15 @@ def rule_route(q: str) -> tuple[list[str], str, str]:
     return [], "low", "规则没命中"
 
 
-def plan(q: str, has_history: bool = False) -> list[dict[str, Any]]:
+def plan(
+    q: str,
+    has_history: bool = False,
+    rules: list[tuple[str, list[str]]] | None = None,
+) -> list[dict[str, Any]]:
     """该前置哪些工具调用。返回空列表表示「别前置，交给模型」。"""
     if has_history:
         return []
-    tools, conf, why = rule_route(q)
+    tools, conf, why = rule_route(q, rules=rules)
     if conf != "high" or not tools:
         return []
 

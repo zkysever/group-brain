@@ -35,6 +35,15 @@ TASKS: dict[str, dict] = {
                 "每天 04:00 会自动跑一次，这里是手动补一次用。",
         "timeout": 600,
     },
+    "facts": {
+        "label": "抽取事实草稿（会调接口）",
+        "script": "extract_facts.py",
+        "args": [],
+        "cost": "约 3 秒 / 20 条消息，几毛钱",
+        "note": "从群聊里抽「谁是什么样」的草稿，写进待审列表。"
+                "抽完去 /facts 一条条点头——不点头的草稿检索不到，也不会影响任何回答。",
+        "timeout": 900,
+    },
     "fts": {
         "label": "重建关键词索引",
         "script": "rebuild_fts.py",
@@ -144,6 +153,20 @@ def _memory_stats(conn) -> dict:
         return {"sessions": 0, "turns": 0}
 
 
+def _facts_stats(conn) -> dict:
+    """事实记忆：待审 / 生效 / 已拒。同样不能让老库把面板整个打挂。"""
+    try:
+        rows = conn.execute("SELECT status, COUNT(*) n FROM facts GROUP BY status").fetchall()
+        d = {r["status"]: int(r["n"]) for r in rows}
+        return {
+            "pending": d.get("pending", 0),
+            "approved": d.get("approved", 0),
+            "rejected": d.get("rejected", 0),
+        }
+    except Exception:                            # noqa: BLE001
+        return {"pending": 0, "approved": 0, "rejected": 0}
+
+
 def state(conn) -> dict:
     """面板上要显示的全部东西，一次拿全，别让前端发一堆请求。"""
     n_msg = conn.execute("SELECT count(*) c FROM messages").fetchone()["c"]
@@ -187,6 +210,7 @@ def state(conn) -> dict:
             "messages_fts": n_fts,
             "fts_ok": n_fts == n_msg,
             "memory": _memory_stats(conn),
+            "facts": _facts_stats(conn),
         },
         "files": {
             "db": fsize(DB_PATH),

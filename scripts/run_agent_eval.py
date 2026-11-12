@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -39,7 +40,9 @@ def load_cases(limit: int | None, grep: str = "", path: Path | None = None) -> l
         except json.JSONDecodeError as e:
             raise SystemExit(f"agent_cases.jsonl 第 {i} 行不是合法 JSON: {e}")
     if grep:
-        rows = [r for r in rows if grep in r["q"]]
+        # 当正则用：传 "减肥|鱼的人" 这种带 | 的串，子串匹配会一条都不中
+        pat = re.compile(grep)
+        rows = [r for r in rows if pat.search(r["q"])]
     return rows[:limit] if limit else rows
 
 
@@ -120,7 +123,7 @@ def main() -> int:
     took = [r.get("took_ms") or 0 for _, r, _, _ in rows]
 
     print("\n" + "-" * 60)
-    print(f"正确率      {passed}/{total} = {passed / total:.3f}")
+    print(f"正确率      {passed}/{total} = {(passed / total if total else 0):.3f}")
     if zero:
         print(f"误触发率    {len(over)}/{len(zero)} = {len(over) / len(zero):.3f}   （寒暄类里乱调工具的比例）")
     print(f"平均轮数    {sum(rounds) / total:.2f}")

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>事实审阅 · group-brain</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b;
+    --line: #262b36; --text: #e6e8ee; --dim: #8b93a5;
+    --accent: #5b8cff; --ok: #2ecc9b; --bad: #ff6b6b; --warn: #f0b429;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 60px; background: var(--bg); color: var(--text);
+    font: 15px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: .5px; }
+  h1 .badge {
+    font-size: 12px; vertical-align: 6px; margin-left: 8px; padding: 2px 8px;
+    border-radius: 999px; background: #22304d; color: #b9ccff; font-weight: 500;
+  }
+  .sub { color: var(--dim); font-size: 14px; margin-bottom: 18px; }
+  .sub a { color: var(--accent); text-decoration: none; }
+  .counts { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .chip {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 14px; font-size: 14px; color: var(--dim);
+  }
+  .chip b { color: var(--text); font-size: 18px; margin-left: 6px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tabs button {
+    background: transparent; color: var(--dim); border: 1px solid var(--line);
+    border-radius: 999px; padding: 6px 16px; font-size: 14px; cursor: pointer;
+  }
+  .tabs button.on { background: #22304d; color: #cfe0ff; border-color: #35507f; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 10px;
+  }
+  .card.approved { border-color: #26543f; }
+  .card.rejected { opacity: .55; }
+  .who { color: var(--accent); font-weight: 600; }
+  .claim { font-size: 16px; margin: 4px 0 8px; }
+  .quote {
+    color: var(--dim); font-size: 13px; background: var(--panel2); border-left: 3px solid var(--line);
+    padding: 6px 10px; border-radius: 6px; white-space: pre-wrap; word-break: break-word;
+  }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .row .meta { color: var(--dim); font-size: 12px; margin-right: auto; }
+  button.act {
+    border: 1px solid var(--line); background: var(--panel2); color: var(--text);
+    border-radius: 8px; padding: 6px 14px; font-size: 14px; cursor: pointer;
+  }
+  button.act.ok { border-color: #2b6b52; color: #7ee0b5; }
+  button.act.bad { border-color: #6b2b2b; color: #ff9a9a; }
+  button.act:active { transform: translateY(1px); }
+  .empty { color: var(--dim); text-align: center; padding: 40px 0; }
+  .tip { color: var(--dim); font-size: 13px; margin-top: 22px; line-height: 1.8; }
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+    background: #22304d; color: #d8e4ff; border: 1px solid #35507f;
+    padding: 8px 18px; border-radius: 999px; font-size: 14px; opacity: 0;
+    transition: opacity .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>事实审阅<span class="badge">v0.14</span></h1>
+  <div class="sub">
+    模型从群聊里抽的「谁 / 什么 是什么样」，一条条点头才生效。
+    <a href="/">← 回到搜索</a> · <a href="/agent">Agent</a> · <a href="/admin">管理面板</a>
+  </div>
+
+  <div class="counts" id="counts"></div>
+
+  <div class="tabs" id="tabs">
+    <button data-s="pending" class="on">待审</button>
+    <button data-s="approved">已生效</button>
+    <button data-s="rejected">已拒绝</button>
+  </div>
+
+  <div id="list"><div class="empty">加载中…</div></div>
+
+  <h2 style="font-size:19px;margin:34px 0 4px">自学规则 <span class="badge">v0.15</span></h2>
+  <div class="sub" style="margin-bottom:12px">
+    从评测集里挖的「这么问 → 就该调这个工具」，能在模型开口前先把检索做掉（省一次往返）。
+    挖出来默认关着，你点头才参与前置——前置错了等于把错答案直接喂给模型。
+  </div>
+  <div id="rules"><div class="empty">加载中…</div></div>
+
+  <div class="tip">
+    为什么要人点头：抽取是模型猜的，一条猜错的事实会被当成「群里的常识」反复引用——
+    一次答错只错一句，一条脏事实会错一片。<br />
+    点「采纳」之后它立刻进检索：下一次问「147 爱喝什么」就能直接用这条，不用再去翻原话。
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let STATUS = 'pending';
+
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._tm);
+  t._tm = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function renderCounts(d) {
+  $('#counts').innerHTML =
+    `<div class="chip">待审<b>${d.pending || 0}</b></div>` +
+    `<div class="chip">已生效<b>${d.approved || 0}</b></div>` +
+    `<div class="chip">已拒绝<b>${d.rejected || 0}</b></div>` +
+    `<div class="chip">被引用<b>${d.hits || 0}</b></div>`;
+}
+
+async function load() {
+  const r = await fetch('/api/facts?status=' + encodeURIComponent(STATUS) + '&limit=200');
+  if (r.status === 401) { location.href = '/login'; return; }
+  const d = await r.json();
+  renderCounts(d);
+  if (!d.rows || !d.rows.length) {
+    $('#list').innerHTML = `<div class="empty">${STATUS === 'pending' ? '没有待审的了。想再抽一批？去管理面板点「抽取事实」。' : '这里还是空的。'}</div>`;
+    return;
+  }
+  $('#list').innerHTML = d.rows.map((f) => {
+    const cls = f.status === 'approved' ? 'card approved' : (f.status === 'rejected' ? 'card rejected' : 'card');
+    const links = (f.msg_ids || []).slice(0, 4).map((id) =>
+      `<a href="/?q=${encodeURIComponent(f.quote || f.claim)}" style="color:var(--dim)">#${id}</a>`).join(' ');
+    const acts = [];
+    if (f.status !== 'approved') acts.push(`<button class="act ok" data-act="approved" data-id="${f.id}">采纳</button>`);
+    if (f.status !== 'rejected') acts.push(`<button class="act bad" data-act="rejected" data-id="${f.id}">拒绝</button>`);
+    if (f.status !== 'pending') acts.push(`<button class="act" data-act="pending" data-id="${f.id}">退回待审</button>`);
+    acts.push(`<button class="act" data-act="delete" data-id="${f.id}">删除</button>`);
+    return `<div class="${cls}">
+      <div class="who">${esc(f.subject)}</div>
+      <div class="claim">${esc(f.claim)}</div>
+      ${f.quote ? `<div class="quote">「${esc(f.quote)}」</div>` : ''}
+      <div class="row">
+        <span class="meta">${esc(f.ts)} · ${links} · 被引用 ${f.hits} 次</span>
+        ${acts.join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+$('#list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const act = btn.dataset.act;
+  btn.disabled = true;
+  try {
+    const url = act === 'delete'
+      ? '/api/facts/delete?id=' + id
+      : '/api/facts/decide?id=' + id + '&status=' + act;
+    const r = await fetch(url, { method: 'POST' });
+    const d = await r.json();
+    if (!d.ok) { toast(d.error || '没成功'); return; }
+    toast(act === 'approved' ? '采纳了，已经能检索到' : (act === 'rejected' ? '拒绝了' : (act === 'delete' ? '删了' : '退回待审')));
+    await load();
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-s]');
+  if (!b) return;
+  STATUS = b.dataset.s;
+  document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
+  load();
+});
+
+async function loadRules() {
+  const box = document.querySelector('#rules');
+  const r = await fetch('/api/rules');
+  if (r.status === 401) { location.href = '/login'; return; }
+  const d = await r.json();
+  if (!d.rows || !d.rows.length) {
+    box.innerHTML = '<div class="empty">还没有规则。跑一次 <code>scripts/mine_rules.py --write</code> 就有了。</div>';
+    return;
+  }
+  box.innerHTML = d.rows.map((x) => {
+    const on = !!x.enabled;
+    return `<div class="${on ? 'card approved' : 'card'}">
+      <div class="who">「${esc(x.pattern)}」→ ${esc(x.tool)}</div>
+      <div class="claim">${on ? '已启用，参与前置预查' : '未启用（挖出来还没点头）'}</div>
+      <div class="quote">${esc(x.note || '')}</div>
+      <div class="row">
+        <span class="meta">支持 ${x.evidence} 条 · 纯度 ${x.precision} · ${esc(x.ts)}</span>
+        <button class="act ${on ? 'bad' : 'ok'}" data-rtog="${x.id}" data-on="${on ? 0 : 1}">${on ? '停用' : '启用'}</button>
+        <button class="act" data-rdel="${x.id}">删除</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.querySelector('#rules').addEventListener('click', async (e) => {
+  const tog = e.target.closest('button[data-rtog]');
+  const del = e.target.closest('button[data-rdel]');
+  if (!tog && !del) return;
+  if (tog) {
+    const r = await fetch('/api/rules/toggle?id=' + tog.dataset.rtog + '&enabled=' + tog.dataset.on, { method: 'POST' });
+    const d = await r.json();
+    toast(d.ok ? (tog.dataset.on === '1' ? '启用了，下次问就会先查' : '停用了') : (d.error || '没成功'));
+  } else {
+    await fetch('/api/rules/delete?id=' + del.dataset.rdel, { method: 'POST' });
+    toast('删了');
+  }
+  loadRules();
+});
+
+load();
+loadRules();
+</script>
+</body>
+</html>

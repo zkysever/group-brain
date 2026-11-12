@@ -94,11 +94,49 @@ CREATE TABLE IF NOT EXISTS corrections (
     hits       INTEGER NOT NULL DEFAULT 0   -- 被用过几次，用来判断这条还有没有用
 );
 
+-- 事实记忆（v0.14）：从群聊里抽「谁 / 什么 是什么样」，先挂 pending，
+-- 用户审过（approved）才会被检索到。为什么必须审：抽取是模型干的，模型会编——
+-- 一条编出来的事实会被当成「群里的常识」反复引用，比一次答错的伤害大得多。
+CREATE TABLE IF NOT EXISTS facts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TEXT NOT NULL,     -- 抽取时间（不是消息时间）
+    subject    TEXT NOT NULL,     -- 谁 / 什么，如「147」「大肥鱼」「群名」
+    claim      TEXT NOT NULL,     -- 结论，如「爱喝扎啤」
+    quote      TEXT,              -- 依据的原话（截断），方便人工核对
+    msg_ids    TEXT,              -- 依据的消息 id，逗号分隔
+    status     TEXT NOT NULL DEFAULT 'pending',   -- pending / approved / rejected
+    hits       INTEGER NOT NULL DEFAULT 0,
+    decided_at TEXT
+);
+
+-- 规则自学习（v0.15）：从评测语料里挖「某种问法一定该调某个工具」，
+-- 只把留出集上不掉准确率的写进来；enabled=0 表示挖出来但没启用。
+CREATE TABLE IF NOT EXISTS rules (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern   TEXT NOT NULL,      -- 正则片段，re.search 用的那种
+    tool      TEXT NOT NULL,      -- 命中就前置调这个工具
+    evidence  INTEGER NOT NULL DEFAULT 0,   -- 支持它的题有几条
+    precision REAL NOT NULL DEFAULT 0,      -- 在语料上的准确率
+    note      TEXT,
+    enabled   INTEGER NOT NULL DEFAULT 0,
+    ts        TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_name);
 CREATE INDEX IF NOT EXISTS idx_memes_tag ON memes(tag);
 CREATE INDEX IF NOT EXISTS idx_agent_turns_session ON agent_turns(session_id, id);
 CREATE INDEX IF NOT EXISTS idx_corrections_norm ON corrections(norm);
+CREATE INDEX IF NOT EXISTS idx_facts_status ON facts(status);
+CREATE INDEX IF NOT EXISTS idx_rules_enabled ON rules(enabled);
+
+-- 事实的关键词索引（bigram，和 messages 用同一套切法）。只索引 approved：
+-- pending 的东西用户还没看过，不该能被检索到。
+CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
+    bigram,
+    fact_id UNINDEXED,
+    tokenize = "unicode61"
+);
 """
 
 

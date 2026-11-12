@@ -19,10 +19,10 @@ import requests
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from . import admin, agent, auth, coach, db, learn, memory, search
+from . import admin, agent, auth, coach, db, facts, learn, memory, search
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.13.0")
+app = FastAPI(title="group-brain", version="0.15.0")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
 PUBLIC = {"/login", "/api/health", "/favicon.ico", "/portfolio"}
@@ -277,6 +277,101 @@ def api_agent_fixes(limit: int = Query(50, ge=1, le=200)):
 @app.post("/api/agent/fix/delete")
 def api_agent_fix_delete(id: int = Query(..., description="corrections 表的 id")):
     return {"ok": True, "deleted": learn.delete(conn(), id)}
+
+
+@app.get("/facts", response_class=HTMLResponse)
+def facts_page() -> str:
+    page = WEB_DIR / "facts.html"
+    if not page.exists():
+        raise HTTPException(500, "web/facts.html 不见了")
+    return page.read_text(encoding="utf-8")
+
+
+@app.get("/api/facts")
+def api_facts(
+    status: str = Query("pending", description="pending / approved / rejected / all"),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """待审的事实草稿（v0.14）。默认只看 pending —— 审阅页的唯一任务是清空它。"""
+    c = conn()
+    rows = facts.list_rows(c, status=status, limit=limit)
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "id": r["id"],
+                "ts": r["ts"],
+                "subject": r["subject"],
+                "claim": r["claim"],
+                "quote": r["quote"] or "",
+                "msg_ids": [int(x) for x in (r["msg_ids"] or "").split(",") if x.strip().isdigit()],
+                "status": r["status"],
+                "hits": r["hits"],
+            }
+        )
+    return {"ok": True, "status": status, "count": len(out), **facts.stats(c), "rows": out}
+
+
+@app.post("/api/facts/decide")
+def api_facts_decide(
+    id: int = Query(..., description="facts 表的 id"),
+    status: str = Query(..., description="approved / rejected / pending"),
+):
+    """点头或摇头。点头之后它会立刻进检索（FTS 重建 + 下一次回答就能引用）。"""
+    if status not in ("approved", "rejected", "pending"):
+        return {"ok": False, "error": "status 只能是 approved / rejected / pending"}
+    c = conn()
+    n = facts.decide(c, id, status)
+    return {"ok": bool(n), "changed": n, **facts.stats(c)}
+
+
+@app.post("/api/facts/delete")
+def api_facts_delete(id: int = Query(..., description="facts 表的 id")):
+    c = conn()
+    return {"ok": True, "deleted": facts.delete(c, id), **facts.stats(c)}
+
+
+@app.get("/api/rules")
+def api_rules():
+    """自学规则（v0.15）：从评测集挖出来、通过留出集影子测试的那几条。
+
+    默认全部 enabled=0。这里只负责列出和开关，不负责挖——
+    挖规则要跑评测集，属于离线动作，放在 scripts/mine_rules.py 和 /admin 里。
+    """
+    c = conn()
+    rows = []
+    try:
+        for r in c.execute(
+            "SELECT id, pattern, tool, evidence, precision, note, enabled, ts"
+            " FROM rules ORDER BY enabled DESC, evidence DESC, length(pattern) DESC"
+        ):
+            rows.append(dict(r))
+    except Exception:                            # noqa: BLE001
+        rows = []
+    return {"ok": True, "count": len(rows), "enabled": sum(1 for r in rows if r["enabled"]), "rows": rows}
+
+
+@app.post("/api/rules/toggle")
+def api_rules_toggle(
+    id: int = Query(..., description="rules 表的 id"),
+    enabled: int = Query(..., ge=0, le=1),
+):
+    """点头/取消。点头之后它参与「前置预查」——错了会立刻体现在下一次回答里。"""
+    c = conn()
+    try:
+        cur = c.execute("UPDATE rules SET enabled = ? WHERE id = ?", (int(enabled), int(id)))
+        c.commit()
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+    return {"ok": bool(cur.rowcount), "changed": int(cur.rowcount or 0)}
+
+
+@app.post("/api/rules/delete")
+def api_rules_delete(id: int = Query(..., description="rules 表的 id")):
+    c = conn()
+    cur = c.execute("DELETE FROM rules WHERE id = ?", (int(id),))
+    c.commit()
+    return {"ok": True, "deleted": int(cur.rowcount or 0)}
 
 
 @app.get("/coach", response_class=HTMLResponse)

@@ -25,6 +25,7 @@ from typing import Any
 import requests
 
 from . import config as cfg
+from . import facts
 from . import learn
 from . import router
 from . import search
@@ -84,6 +85,27 @@ TOOLS: list[dict[str, Any]] = [
                 "properties": {
                     "query": {"type": "string", "description": "描述想要什么情绪或画面的图"},
                     "limit": {"type": "integer", "description": "返回几张，默认 3，最大 5"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_facts",
+            "description": (
+                "查「群里确认过的常识」：某人的偏好/身份/外号、群里的规矩和设定。只在这两种时候调它："
+                "①问某人是什么样的人、喜欢什么；②问群里的规矩/设定/约定。"
+                "**它的库很小（只有人工确认过的几十条），找不到原话**——"
+                "问「谁说过某句话」「聊过什么」时不要调它，直接调 search_memory。"
+                "调一次没结果就换 search_memory，别重复调它。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "检索词，比如「147 喝什么」「群名」"},
+                    "limit": {"type": "integer", "description": "返回几条，默认 5，最大 10"},
                 },
                 "required": ["query"],
             },
@@ -177,6 +199,28 @@ def _run_tool(name: str, args: dict[str, Any], conn) -> tuple[str, dict[str, Any
         now = datetime.now().astimezone()
         payload = {"now": now.strftime("%Y-%m-%d %H:%M:%S"), "weekday": "一二三四五六日"[now.weekday()], "tz": str(now.tzinfo)}
         note = {"tool": name, "args": {}, "n": 1, "mode": "-"}
+    elif name == "search_facts":
+        q = str(args.get("query") or "").strip()
+        limit = min(int(args.get("limit") or MAX_HITS), 10)
+        rows = facts.search(conn, q, limit)
+        # 事实条目本来就短（subject + claim 一行），不用像消息那样截断太狠
+        hits = [
+            {
+                "type": "fact",
+                "text": f"{r['subject']}｜{r['claim']}",
+                "who": r["subject"],
+                "ts": "",
+                "quote": (r["quote"] or "")[:HIT_CHARS],
+            }
+            for r in rows
+        ]
+        payload = {"query": q, "count": len(hits), "hits": hits}
+        if not hits:
+            # 模型在 0 结果之后最常见的动作是换个词再调一次。明确告诉它这条路不通，
+            # 比在评测里加一条规则更省事（也真的减少了调用次数）。
+            payload["note"] = "事实库里没有这条。不要再调 search_facts，请改用 search_memory 找聊天原话。"
+        note = {"tool": name, "args": {"query": q, "limit": limit}, "n": len(hits), "mode": "keyword"}
+        facts.bump(conn, [r["id"] for r in rows])
     else:
         payload = {"error": f"没有这个工具: {name}"}
         note = {"tool": name, "args": args, "n": 0, "mode": "-"}
@@ -272,7 +316,7 @@ def run(conn, question: str, max_rounds: int = MAX_ROUNDS, history: Any = None) 
     # 所以第二版改成伪造一轮真正的工具往返：assistant(tool_calls) + tool(结果)，
     # 模型看到的状态就是「这工具我刚调过、结果是这个」，才会接着写答案而不是再调一次。
     if PREFETCH:
-        plan = router.plan(question, bool(past))
+        plan = router.plan(question, bool(past), rules=router.learned_rules(conn))
         if plan:
             calls: list[dict[str, Any]] = []
             tool_msgs: list[dict[str, Any]] = []

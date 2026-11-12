@@ -41,6 +41,8 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | 作品集页（公开，数字实时） | ✅ v0.8，/portfolio |
 | 学习教练：从提交和群活跃度生成周报 | ✅ A4，见 `/coach` 与 `docs/coach.md`；每周一 09:00 自动生成 |
 | 纠错记忆：答错一次就能教它，下次同样的话直接照你说的答（4302ms → 0.2ms） | ✅ v0.13，`app/learn.py` + `corrections` 表 |
+| 事实记忆：从群聊抽「谁是什么样」，人点头后才进检索（`search_facts` 工具） | ✅ v0.14，`app/facts.py` + `/facts` 审阅页 |
+| 规则自学习：从评测集挖「这么问→调这个工具」，留出集影子测试过关才敢用 | ✅ v0.15，`scripts/mine_rules.py` + `rules` 表 |
 
 ---
 
@@ -56,10 +58,11 @@ group-brain/
 │  ├─ search.py          FTS5 + 向量，四路 RRF 融合
 │  ├─ vectors.py         向量存取与暴力点乘（605 条不值得上向量库）
 │  ├─ embeddings.py      bge-m3 接口
-│  ├─ agent.py           A2：三个工具 + 最多 3 轮的调用循环
+│  ├─ agent.py           A2：四个工具（记忆/表情包/时间/事实）+ 最多 3 轮的调用循环
 │  ├─ memory.py          A2 的记忆：按 session 存服务端（刷新/换设备都还在）
 │  ├─ learn.py           纠错记忆：用户教过的问法→答案，命中就原样答（不让模型改写）
-│  ├─ router.py          A3 落地：规则前置（有把握就先跑工具，省一次往返）
+│  ├─ facts.py           事实记忆：人工点头过的「谁是什么样」，只索引 approved
+│  ├─ router.py          A3 落地：规则前置 + 自学规则（有把握就先跑工具，省一次往返）
 │  ├─ auth.py            口令门：HMAC cookie + 限速
 │  ├─ admin.py           管理面板后端：点按钮 = 跑一次脚本（单任务锁 + 抓日志）
 │  └─ main.py            FastAPI：页面 + 接口
@@ -71,6 +74,8 @@ group-brain/
 │  ├─ build_vectors.py   建向量（--force 全量重建）
 │  ├─ run_eval.py        检索评测（三种模式并排）
 │  ├─ run_agent_eval.py  Agent 评测（50 条 + 6 条上下文题）
+│  ├─ extract_facts.py   从群聊抽事实草稿（写 pending，等人点头）
+│  ├─ mine_rules.py      从评测集挖工具选择规则 + 留出集影子测试
 │  ├─ pick_queries.py    翻聊天记录，帮你想评测题
 │  ├─ check_queries.py   评测集体检（JSONL 有没有写错）
 │  ├─ rebuild_fts.py     只重建关键词索引（不需要原始库）
@@ -124,6 +129,9 @@ GET /api/agent?q=谁说过要吃鱼片                          # Agent 模式�
 POST /api/agent/forget                                    # 清空这个会话的记忆
 POST /api/agent/fix?q=&right=&wrong=                      # 教它一句（v0.13，同问再教=覆盖）
 GET  /api/agent/fixes                                     # 它学会了哪些（带 hits，被用过几次）
+GET  /facts · GET /api/facts?status=pending                # 事实审阅页（v0.14）：点头/拒绝/退回
+POST /api/facts/decide?id=&status= · POST /api/facts/delete?id=
+GET  /api/rules · POST /api/rules/toggle?id=&enabled= · POST /api/rules/delete?id=   # 自学规则（v0.15）
 POST /api/agent/fix/delete?id=                             # 删掉教过的一条
 # 旧客户端还能传 &history=[...]，但服务端有记忆时以服务端为准
 GET /portfolio                                         # 作品集页（唯一不要口令的页面）
@@ -264,7 +272,7 @@ python scripts/bench_fusion.py --grid "k=60 w=1,1.5,2"        # 扫融合旋钮
 - ~~**工程收尾**~~ —— 已做：CI（`.github/workflows/ci.yml`）、依赖锁版本、LICENSE、每天自动备份 + 拉回本机，见「工程收尾」一节
 - ~~**评测加难**~~ —— 已做（v0.12）：`eval/queries_hard.jsonl` 14 条「换说法」题，关键词 0.714 → 融合 1.000；`scripts/bench_fusion.py` 扫出 `RRF_VEC_W=1.5`（两套 MRR 都涨）。还剩一条 `K=20/W=3.0` 的备选，等难集扩到 50 条再定
 - ~~**学习能力（第 1 层）：纠错回路**~~ —— 已做（v0.13）：`corrections` 表 + `/api/agent/fix`，教过的问题下次 0.2ms 直接照答（原来 4302ms / 2 轮工具）。见 `docs/agent.md`「纠错记忆」
-- **学习能力（第 2 层）：事实抽取** —— 从群聊里抽「谁喜欢什么 / 群的规矩」，抽完要能人工审一遍再入库（不审就会被它自己编的东西污染）
+- ~~**学习能力（第 2 层）：事实抽取**~~ —— 已做（v0.14）：scripts/extract_facts.py 抽草稿（564 条消息抽出 153 条）、/facts 一条条点头、点头后才进 search_facts 检索。新工具第一版反而把 50 条从 49 掉到 46（模型被工具描述带着乱调），修完回到 48/50，见 EVAL.md 第十二节
 - **学习能力（第 3 层）：规则自学习** —— 从真实对话里挖「问法 → 该调哪个工具」，自动生成 `router.py` 的规则；规则多了会互相打架，必须有评测兜底
 - **周报推送**：只能自己开网页看。三条路（企业微信 webhook / SMTP / AstrBot 插件）都要新账号或会打扰群里，见 `docs/deploy.md`「定时任务」
 - ~~**备份加校验**~~ —— 已做（v0.10）：`scripts/restore_check.py` 真恢复一次并真查一次，本机与服务器都验过；服务器每月 1 号 04:00 自动跑，日志 `/var/log/gb-restore.log`

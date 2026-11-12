@@ -161,6 +161,44 @@ def main() -> None:
         learn.record(conn, "帮我代一个白系AP", "改一版答案")
         check("learn 再教是覆盖", learn.stats(conn)["total"] == 1, str(learn.stats(conn)))
         check("learn 删掉", learn.delete(conn, cid) == 1 and learn.find(conn, "帮我代一个白系AP") is None)
+
+        # 11. 事实记忆（v0.14）：pending 查不到 → 点头后查得到 → 相似草稿去重 → 拒绝后又查不到
+        from app import facts as fx
+        from app import router as rt
+
+        r = fx.add_candidates(conn, [
+            {"subject": "147", "claim": "爱喝扎啤", "quote": "扎啤", "msg_ids": [565]},
+            {"subject": "147", "claim": "爱喝扎啤", "quote": "重复", "msg_ids": [566]},
+            {"subject": "147", "claim": "爱喝扎啤啊", "quote": "扎啤", "msg_ids": [567]},
+        ])
+        check("facts 写入去重（全等 + 换一两个字）", r["added"] == 1 and r["dup"] == 2, str(r))
+        # 换了一整套说法的「同一个意思」抓不到——这是 bigram 相似度的边界，写在 EVAL.md 里了
+        r2 = fx.add_candidates(conn, [
+            {"subject": "bot", "claim": "口头禅是杂口杂口和扎口", "quote": "杂口杂口", "msg_ids": [40]},
+            {"subject": "bot", "claim": "常用扎口扎口作语气词", "quote": "扎口扎口", "msg_ids": [41]},
+        ])
+        check("facts 相似度抓不到换说法的（已知边界）", r2["added"] == 2, str(r2))
+        check("facts pending 检索不到", fx.search(conn, "147 喝什么") == [])
+        fid = conn.execute("SELECT id FROM facts WHERE subject='147'").fetchone()["id"]
+        fx.decide(conn, fid, "approved")
+        hit = fx.search(conn, "147 爱喝什么")
+        check("facts 点头后能查到", bool(hit) and hit[0]["claim"] == "爱喝扎啤", str(hit[:1]))
+        fx.decide(conn, fid, "rejected")
+        check("facts 拒绝后又查不到", fx.search(conn, "147 爱喝什么") == [])
+
+        # 12. 自学规则（v0.15）：enabled=1 才参与前置，且含指代词时不采信
+        conn.execute("INSERT INTO rules (pattern, tool, evidence, precision, enabled, ts)"
+                     " VALUES ('有人说过', 'search_memory', 2, 1.0, 1, '2026-11-12 00:00:00')")
+        conn.commit()
+        rules = rt.learned_rules(conn)
+        check("rules 读到启用规则", len(rules) == 1, str(rules))
+        t1 = rt.rule_route("有人说过这句话吗", rules=rules)
+        check("rules 命中参与前置", t1[1] == "high" and "search_memory" in t1[0], str(t1))
+        t2 = rt.rule_route("刚才那句话有人说过吗", rules=rules)
+        check("rules 遇指代词降级", t2[1] == "low", str(t2))
+        conn.execute("UPDATE rules SET enabled = 0")
+        conn.commit()
+        check("rules 停用后不采信", rt.learned_rules(conn) == [])
     finally:
         conn.close()
 
