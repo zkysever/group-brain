@@ -10,6 +10,7 @@ import sqlite3
 import time
 from typing import Any
 
+from . import config as cfg
 from . import vectors
 from .text import to_bigrams
 
@@ -101,15 +102,25 @@ def _kw_memes(conn, query: str, limit: int) -> list[tuple[int, float]]:
 
 # ---------------------------------------------------------------- RRF 融合
 
-def rrf_fuse(lists: list[list[tuple[int, float]]], k: int = 60) -> list[tuple[int, float]]:
+def rrf_fuse(
+    lists: list[list[tuple[int, float]]],
+    k: int = 60,
+    weights: list[float] | None = None,
+) -> list[tuple[int, float]]:
     """Reciprocal Rank Fusion：多路召回只比名次，不比原始分数。
 
     好处：bm25 的分数和向量余弦完全不可比，硬加权调参数会调死人。
+    weights 是给每一路乘的系数（默认全 1）——数据量变大后关键词那路会多出
+    一堆「字面沾边」的候选，把只在向量里靠前的结果挤出去，这时可以给向量
+    那路调高一点。**默认不改**，要不要改由 scripts/bench_fusion.py 在评测集上验。
     """
+    if weights is not None and len(weights) != len(lists):
+        weights = None
     score: dict[int, float] = {}
-    for ranked in lists:
+    for idx, ranked in enumerate(lists):
+        w = 1.0 if weights is None else weights[idx]
         for rank, (oid, _raw) in enumerate(ranked, start=1):
-            score[oid] = score.get(oid, 0.0) + 1.0 / (k + rank)
+            score[oid] = score.get(oid, 0.0) + w / (k + rank)
     return sorted(score.items(), key=lambda kv: kv[1], reverse=True)
 
 
@@ -255,33 +266,41 @@ def search_all(
     deep = max(limit * 4, 20)  # 每路多捞一点，融合后才有得选
 
     lists: list[list[tuple[int, float]]] = []
+    kinds: list[str] = []   # 与 lists 一一对应，用来决定这一路的权重
     degraded: str | None = None
     if want_msg:
         if m in ("keyword", "hybrid"):
             lists.append(_kw_messages(conn, query, deep))
+            kinds.append("kw")
         if m in ("vector", "hybrid"):
             vec = _vec_safe(conn, query, "message", deep)
             if vec is None:
                 degraded = "向量检索失败，这一路退回关键词"
             else:
                 lists.append(vec)
+                kinds.append("vec")
     if want_meme:
         if m in ("keyword", "hybrid"):
             lists.append([(i + MEME_OFF, s) for i, s in _kw_memes(conn, query, deep)])
+            kinds.append("kw")
         if m in ("vector", "hybrid"):
             vec = _vec_safe(conn, query, "meme", deep)
             if vec is None:
                 degraded = "向量检索失败，这一路退回关键词"
             else:
                 lists.append([(i + MEME_OFF, s) for i, s in vec])
+                kinds.append("vec")
 
-    lists = [x for x in lists if x]
+    keep = [i for i, x in enumerate(lists) if x]
+    lists = [lists[i] for i in keep]
+    kinds = [kinds[i] for i in keep]
     if not lists:
         ranked: list[tuple[int, float]] = []
     elif len(lists) == 1:
         ranked = lists[0]
     else:
-        ranked = rrf_fuse(lists)
+        weights = [cfg.RRF_VEC_W if kd == "vec" else 1.0 for kd in kinds]
+        ranked = rrf_fuse(lists, k=cfg.RRF_K, weights=weights)
     ranked = ranked[:limit]
 
     msg_ids = [oid for oid, _ in ranked if oid < MEME_OFF]

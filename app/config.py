@@ -75,3 +75,11 @@ AGENT_HISTORY_CHARS = int(os.environ.get("AGENT_HISTORY_CHARS", "600"))  # 单�
 AGENT_HIT_CHARS = int(os.environ.get("AGENT_HIT_CHARS", "240"))          # 单条检索结果截断（以前 120）
 AGENT_MAX_HITS = int(os.environ.get("AGENT_MAX_HITS", "6"))              # 一次工具最多返回几条（以前 5）
 AGENT_MAX_ROUNDS = int(os.environ.get("AGENT_MAX_ROUNDS", "3"))          # 最多几轮工具调用（不动，多给一轮只会让它多绕）
+
+# ---- 融合参数（RRF）----
+# 数据从 483 涨到 564 条之后，「让鱼帮我把人开盒」这条从第 4 名掉出了前 5：
+# 向量那路把它排第 1，但关键词那路多出一堆「字面沾边」的候选，RRF 一平均就挤掉了。
+# 所以把这两只旋钮露出来，要不要调由 scripts/bench_fusion.py 在两套评测集上验，
+# 不是拍脑袋改（默认仍然 1.0 / 60，等于现在的行为）。
+RRF_K = int(os.environ.get("RRF_K", "60"))            # 名次折扣常数，越大越平
+RRF_VEC_W = float(os.environ.get("RRF_VEC_W", "1.5"))  # 向量那一路的权重（关键词那一路固定 1.0）

@@ -52,9 +52,13 @@ def run(conn, cases: list[dict], mode: str) -> tuple[list[tuple], float, float]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", default="", choices=["", *MODES], help="留空=三种并排")
+    ap.add_argument("--queries", default="", help="评测集文件（默认 eval/queries.jsonl；难集用 eval/queries_hard.jsonl）")
     args = ap.parse_args()
 
-    path = EVAL_DIR / "queries.jsonl"
+    path = Path(args.queries) if args.queries else EVAL_DIR / "queries.jsonl"
+    if not path.is_absolute():
+        cand = EVAL_DIR / path.name
+        path = cand if cand.exists() else path
     if not path.exists():
         print(f"[X] 找不到评测集: {path}")
         raise SystemExit(1)

@@ -29,7 +29,7 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | 表情包按描述/关键词检索（122 张，直接出图） | ✅ |
 | 记忆回放：点一下看这条消息前后说了什么 | ✅ v0.6 |
 | 中文 bigram 分词（索引与查询同一套切法） | ✅ |
-| 检索评测（48 条，Recall@5 1.000 / MRR 0.939） | ✅ `EVAL.md` |
+| 检索评测（48 条：0.979 / MRR 0.948；难集 14 条：关键词 0.714 → 融合 1.000） | ✅ `EVAL.md` |
 | Agent 模式：模型自己决定调不调工具 | ✅ A2，见 `/agent` |
 | 规则前置：有把握的题跳过「决定调不调」那次往返 | ✅ v0.10，`app/router.py`，同题快 35% |
 | Agent 记忆存在服务端（刷新/换设备都还在） | ✅ v0.11，`app/memory.py` + `agent_turns` 表 |
@@ -74,6 +74,7 @@ group-brain/
 │  ├─ rebuild_fts.py     只重建关键词索引（不需要原始库）
 │  ├─ gen_report.py      生成周报（--week 2026-W46 / last / --dry）
 │  ├─ bench_routing.py   路由实验：规则 / 小模型 / 大模型 / 混合 四方案对比
+│  ├─ bench_fusion.py    RRF 旋钮扫描（K 与向量权重），两套评测集一起看
 │  ├─ backup_db.py       备份数据库（sqlite3 backup API，带 WAL 也一致）+ 保留最近 N 份
 │  ├─ restore_check.py   恢复演练：真打开一份备份、真查一次，证明它不是废文件
 │  ├─ cron_coach.sh      每周一 09:00 自动生成周报的入口（要 source .env，cron 里没有 key）
@@ -97,7 +98,8 @@ group-brain/
 │  ├─ raw/               ← AstrBot 数据库副本放这儿
 │  └─ group_brain.db     运行时生成的索引
 └─ eval/
-   ├─ queries.jsonl      检索评测集（48 条）
+   ├─ queries.jsonl      检索评测集（48 条，开卷：查询里通常含答案的原词）
+├─ queries_hard.jsonl 难集（14 条，换说法、不重字、描述性要图）
    ├─ agent_cases.jsonl  Agent 评测集（50 条）
    ├─ agent_history_cases.jsonl 上下文题（6 条，带 history）
    ├─ agent_holdout.jsonl 留出集（10 条，写完规则之后才写的）
@@ -217,7 +219,9 @@ bigram 把"大肥鱼"变成 `大肥 肥鱼`，搜"肥鱼"必中。
 ## 跑评测
 
 ```
-python scripts/run_eval.py
+python scripts/run_eval.py                          # 48 条原集
+python scripts/run_eval.py --queries eval/queries_hard.jsonl   # 14 条难集
+python scripts/bench_fusion.py --grid "k=60 w=1,1.5,2"        # 扫融合旋钮
 ```
 
 这套 48 条查询现在的成绩（`EVAL.md` 有完整对比表）：
@@ -253,6 +257,7 @@ python scripts/run_eval.py
 - ~~**规则前置**：`agent.run()` 前加一层 `rule_route()`~~ —— 已做（v0.10，`app/router.py`）：同一份 50 条题
   7209 ms → 4661 ms、模型往返 1.04 → 0.86，正确率不变。第一版把结果塞 system 消息是错的（38 条被前置的题模型全部又自己查一遍），见 `docs/agent.md`「规则前置」一节
 - ~~**工程收尾**~~ —— 已做：CI（`.github/workflows/ci.yml`）、依赖锁版本、LICENSE、每天自动备份 + 拉回本机，见「工程收尾」一节
+- ~~**评测加难**~~ —— 已做（v0.12）：`eval/queries_hard.jsonl` 14 条「换说法」题，关键词 0.714 → 融合 1.000；`scripts/bench_fusion.py` 扫出 `RRF_VEC_W=1.5`（两套 MRR 都涨）。还剩一条 `K=20/W=3.0` 的备选，等难集扩到 50 条再定
 - **周报推送**：只能自己开网页看。三条路（企业微信 webhook / SMTP / AstrBot 插件）都要新账号或会打扰群里，见 `docs/deploy.md`「定时任务」
 - ~~**备份加校验**~~ —— 已做（v0.10）：`scripts/restore_check.py` 真恢复一次并真查一次，本机与服务器都验过；服务器每月 1 号 04:00 自动跑，日志 `/var/log/gb-restore.log`
 
