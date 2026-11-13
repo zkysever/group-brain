@@ -265,41 +265,65 @@ def search_all(
     want_meme = kind in ("all", "meme", "memes")
     deep = max(limit * 4, 20)  # 每路多捞一点，融合后才有得选
 
+    # 查询变体：原句 + 扩展说法。扩展**只给关键词那一路**（见 expand.py 顶部说明）：
+    # 扩展的用处就是「把问法翻译成记录里真有的字」，而向量那一路每加一句都要多调一次接口。
+    queries: list[str] = [query]
+    if cfg.MULTI_QUERY:
+        try:
+            from . import expand
+            if expand.available():
+                queries += [a for a in expand.expand(conn, query) if a]
+        except Exception as e:  # noqa: BLE001  扩展是加分项，挂了不能拖垮搜索
+            print(f"[warn] 查询扩展失败，只用原句: {type(e).__name__}: {e}", flush=True)
+
     lists: list[list[tuple[int, float]]] = []
-    kinds: list[str] = []   # 与 lists 一一对应，用来决定这一路的权重
+    kinds: list[str] = []        # 与 lists 一一对应，用来决定这一路的基础权重
+    factors: list[float] = []    # 与 lists 一一对应：原句 1.0、扩展说法 MQ_WEIGHT
     degraded: str | None = None
-    if want_msg:
-        if m in ("keyword", "hybrid"):
-            lists.append(_kw_messages(conn, query, deep))
-            kinds.append("kw")
-        if m in ("vector", "hybrid"):
-            vec = _vec_safe(conn, query, "message", deep)
-            if vec is None:
-                degraded = "向量检索失败，这一路退回关键词"
-            else:
-                lists.append(vec)
-                kinds.append("vec")
-    if want_meme:
-        if m in ("keyword", "hybrid"):
-            lists.append([(i + MEME_OFF, s) for i, s in _kw_memes(conn, query, deep)])
-            kinds.append("kw")
-        if m in ("vector", "hybrid"):
-            vec = _vec_safe(conn, query, "meme", deep)
-            if vec is None:
-                degraded = "向量检索失败，这一路退回关键词"
-            else:
-                lists.append([(i + MEME_OFF, s) for i, s in vec])
-                kinds.append("vec")
+    for qi, qx in enumerate(queries):
+        fac = 1.0 if qi == 0 else cfg.MQ_WEIGHT
+        kw_on = m in ("keyword", "hybrid")
+        vec_on = m in ("vector", "hybrid") and qi == 0
+        if want_msg:
+            if kw_on:
+                lists.append(_kw_messages(conn, qx, deep))
+                kinds.append("kw")
+                factors.append(fac)
+            if vec_on:
+                vec = _vec_safe(conn, qx, "message", deep)
+                if vec is None:
+                    degraded = "向量检索失败，这一路退回关键词"
+                else:
+                    lists.append(vec)
+                    kinds.append("vec")
+                    factors.append(fac)
+        if want_meme:
+            if kw_on:
+                lists.append([(i + MEME_OFF, s) for i, s in _kw_memes(conn, qx, deep)])
+                kinds.append("kw")
+                factors.append(fac)
+            if vec_on:
+                vec = _vec_safe(conn, qx, "meme", deep)
+                if vec is None:
+                    degraded = "向量检索失败，这一路退回关键词"
+                else:
+                    lists.append([(i + MEME_OFF, s) for i, s in vec])
+                    kinds.append("vec")
+                    factors.append(fac)
 
     keep = [i for i, x in enumerate(lists) if x]
     lists = [lists[i] for i in keep]
     kinds = [kinds[i] for i in keep]
+    factors = [factors[i] for i in keep]
     if not lists:
         ranked: list[tuple[int, float]] = []
     elif len(lists) == 1:
         ranked = lists[0]
     else:
-        weights = [cfg.RRF_VEC_W if kd == "vec" else 1.0 for kd in kinds]
+        weights = [
+            (cfg.RRF_VEC_W if kd == "vec" else 1.0) * factors[i]
+            for i, kd in enumerate(kinds)
+        ]
         ranked = rrf_fuse(lists, k=cfg.RRF_K, weights=weights)
     ranked = ranked[:limit]
 
@@ -320,6 +344,7 @@ def search_all(
     took = (time.perf_counter() - t0) * 1000
     return {
         "query": query,
+        "queries": queries,
         "kind": kind,
         "mode": m,
         "took_ms": round(took, 2),

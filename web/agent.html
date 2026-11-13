@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>group-brain · Agent v0.4</title>
+<title>group-brain · Agent v0.6</title>
 <style>
   :root {
     --bg: #0f1115;
@@ -106,7 +106,7 @@ textarea:focus { outline: none; border-color: var(--accent); }
 </head>
 <body>
 <div class="wrap">
-  <h1>group-brain<span class="badge">Agent v0.5</span></h1>
+  <h1>group-brain<span class="badge">Agent v0.6</span></h1>
   <div class="sub">把检索当工具交给模型：它自己决定调不调、调哪个。下面是它的调用记录，可以挑错；挑出来的错可以直接教它。</div>
 
   <div class="row">
@@ -119,7 +119,7 @@ textarea:focus { outline: none; border-color: var(--accent); }
 
   <div class="foot">
     同一个问题，<a href="/">直接检索</a>只有结果没有解释；这里多了「它有没有乱调工具」。
-    <span style="color:var(--dim)">· 记忆存在服务器上，刷新/换设备都还在</span>
+    <span style="color:var(--dim)">· 记忆跟着口令走：手机上问过的，电脑上接着问也记得</span>
     <button id="forget" class="mini">清空记忆</button>
     <br>
     <span style="color:var(--dim)">你教它的、它自学到的规则，都在</span>
@@ -299,7 +299,9 @@ function renderFix(q, d) {
 }
 
 document.getElementById('forget').onclick = async () => {
-  if (!confirm('清空这个会话的记忆？（服务端记录会一起删掉）')) return;
+  // 共享模式下这段记忆是所有设备共用的，所以提示里要写明「所有设备」
+  const shared = true;
+  if (!confirm(shared ? '清空这段记忆？（手机、电脑上看到的是同一段，一起清掉）' : '清空这个会话的记忆？')) return;
   const r = await fetch('/api/agent/forget', { method: 'POST' });
   const d = await r.json().catch(() => ({}));
   outEl.innerHTML = '';

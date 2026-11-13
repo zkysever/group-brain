@@ -54,7 +54,13 @@ def main() -> None:
     ap.add_argument("--mode", default="", choices=["", *MODES], help="留空=三种并排")
     ap.add_argument("--queries", default="", help="评测集文件（默认 eval/queries.jsonl；难集用 eval/queries_hard.jsonl）")
     ap.add_argument("--top", type=int, default=5, help="取前几名算命中，默认 5（线上 /api/search 默认 limit=10，口径要对齐就传 10）")
+    ap.add_argument("--mq", default="", choices=["", "on", "off"], help="多查询扩展：on/off 覆盖配置（默认关），留空=按 config")
     args = ap.parse_args()
+
+    if args.mq:
+        from app import config as _cfg
+        _cfg.MULTI_QUERY = args.mq == "on"
+        print(f"[多查询扩展] {'开' if _cfg.MULTI_QUERY else '关'}（MQ_MAX={_cfg.MQ_MAX} MQ_WEIGHT={_cfg.MQ_WEIGHT}）")
 
     global TOP_K
     if args.top >= 1:

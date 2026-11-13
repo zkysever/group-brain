@@ -32,6 +32,7 @@ from app import db, search  # noqa: E402
 from app.config import DB_PATH  # noqa: E402
 
 
+
 FAILS: list[str] = []
 
 
@@ -165,6 +166,7 @@ def main() -> None:
         # 11. 事实记忆（v0.14）：pending 查不到 → 点头后查得到 → 相似草稿去重 → 拒绝后又查不到
         from app import facts as fx
         from app import router as rt
+        from app import expand as ex
 
         r = fx.add_candidates(conn, [
             {"subject": "147", "claim": "爱喝扎啤", "quote": "扎啤", "msg_ids": [565]},
@@ -199,6 +201,41 @@ def main() -> None:
         conn.execute("UPDATE rules SET enabled = 0")
         conn.commit()
         check("rules 停用后不采信", rt.learned_rules(conn) == [])
+
+        # 13. 查询扩展（v0.16）：只测纯函数，不联网。
+        #     功能实测无效（EVAL.md 第十三节），但代码要在，且解析不能崩。
+        check("expand 归一化键", ex.norm_key(" 谁　说过「鱼片」？ ") == "谁说过鱼片")
+        payload = json.dumps(["鱼片谁说的", "想吃鱼片", "鱼片谁说的", "长" * 40], ensure_ascii=False)
+        alts = ex._parse(payload, "谁说过鱼片")
+        check("expand 解析去重/去原句/截长度", alts == ["鱼片谁说的", "想吃鱼片"], str(alts))
+        check("expand 解析非 JSON 返回空", ex._parse("没有数组", "q") == [])
+
+        # 14. 事实自动审阅（v0.16）：机器只处理它确定的那批。
+        conn.execute("INSERT INTO messages (id, ts, sender_name, kind, session, text)"
+                     " VALUES (901, '2026-01-01 10:00:00', '147', 'user', 'g', '我想吃鱼片')")
+        conn.execute("INSERT INTO messages (id, ts, sender_name, kind, session, text)"
+                     " VALUES (902, '2026-01-01 10:00:10', 'bot', 'bot', 'g', '我是这个群里的 AI 助手')")
+        conn.commit()
+        fx.add_candidates(conn, [
+            {"subject": "147", "claim": "想吃鱼片", "quote": "我想吃鱼片", "msg_ids": [901]},
+            {"subject": "bot", "claim": "是群里的 AI 助手", "quote": "我是这个群里的 AI 助手", "msg_ids": [902]},
+        ])
+        ok = fx.auto_approve(conn, dry=True)
+        bad = fx.auto_reject(conn, dry=True)
+        check("审阅：真人那条自动点头", ok["picked"] == 1, str(ok["detail"]))
+        # 垃圾名单里必须包含那条 bot 事实（别的「查不到原话」的老数据也会进来，不数条数）
+        bot_row = conn.execute(
+            "SELECT id FROM facts WHERE subject = 'bot' AND status = 'pending'"
+        ).fetchone()
+        check(
+            "审阅：bot 那条被列入自动拒绝",
+            bool(bot_row) and any(d["id"] == bot_row["id"] for d in bad["detail"]),
+            str(bad["detail"]),
+        )
+        check("审阅：dry-run 不写库", fx.stats(conn)["approved"] == 0, str(fx.stats(conn)))
+        fx.auto_approve(conn, dry=False)
+        check("审阅：--apply 后真的生效", fx.stats(conn)["approved"] == 1, str(fx.stats(conn)))
+        check("审阅：一键撤销退回待审", fx.undo_auto(conn) == 1 and fx.stats(conn)["approved"] == 0)
     finally:
         conn.close()
 

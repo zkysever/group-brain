@@ -30,9 +30,41 @@ KEEP_TURNS = 200
 # 单条历史在库里最多存多少字（防止一次粘贴几万字把库撑爆）
 STORE_CHARS = 2000
 
+# 「口令即身份」（v0.18）：有这个口令的人共用一段记忆。
+# 为什么改：cookie 方案的记忆是「这台浏览器的」，手机问一半电脑接不上——
+# 而这套东西只有一个使用者（网页后面挂着一道口令门），那就没必要按浏览器分会话。
+# 想退回旧行为（一浏览器一段记忆）：把 AGENT_SHARED_MEMORY=0 写进 .env。
+SHARED_SESSION = "main"
+
 
 def new_session() -> str:
     return uuid.uuid4().hex
+
+
+def adopt_into(conn: sqlite3.Connection, target: str = SHARED_SESSION) -> int:
+    """把「最近在用的那个旧 cookie 会话」并进共享会话，返回并进来几条。
+
+    只在 target 还是一张白纸时做一次。不这么做的话，用户升级完会发现
+    「我之前的对话它忘了」——明明库里还在，只是换了 session_id 查不到。
+    """
+    n = conn.execute(
+        "SELECT COUNT(*) FROM agent_turns WHERE session_id=?", (target,)
+    ).fetchone()[0]
+    if n:
+        return 0
+    row = conn.execute(
+        "SELECT session_id, COUNT(*) AS c FROM agent_turns "
+        "WHERE session_id != ? GROUP BY session_id ORDER BY MAX(id) DESC LIMIT 1",
+        (target,),
+    ).fetchone()
+    if not row:
+        return 0
+    cur = conn.execute(
+        "UPDATE agent_turns SET session_id=? WHERE session_id=?",
+        (target, row["session_id"]),
+    )
+    conn.commit()
+    return cur.rowcount
 
 
 def _now() -> str:

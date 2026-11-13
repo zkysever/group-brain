@@ -1,6 +1,6 @@
 # group-brain
 
-群聊记忆体 · v0.11
+群聊记忆体 · v0.16
 
 把 AstrBot 里攒下来的群聊记录 + 两套表情包，变成**一条能搜的索引**，
 再往上加一层「模型自己决定查不查」的 Agent。在线地址：**https://zkysever.com**
@@ -43,6 +43,9 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | 纠错记忆：答错一次就能教它，下次同样的话直接照你说的答（4302ms → 0.2ms） | ✅ v0.13，`app/learn.py` + `corrections` 表 |
 | 事实记忆：从群聊抽「谁是什么样」，人点头后才进检索（`search_facts` 工具） | ✅ v0.14，`app/facts.py` + `/facts` 审阅页 |
 | 规则自学习：从评测集挖「这么问→调这个工具」，留出集影子测试过关才敢用 | ✅ v0.15，`scripts/mine_rules.py` + `rules` 表 |
+| Agent 记忆跟着口令走：手机问过的，电脑上接着问也记得（`AGENT_SHARED_MEMORY`） | ✅ v0.16 |
+| 事实自动审阅：机器只处理「原话可查 + 主语是真人 + 结论有原话支撑」的那批，剩下的留给人 | ✅ v0.16，`scripts/review_facts.py` |
+| 查询扩展（把问法改写成记录里的说法） | ⛔ v0.16 实测**失败**：难集 0.760→0.720、延迟 ×6。代码在 `app/expand.py`，默认关，`MULTI_QUERY=1` 才开 |
 
 ---
 
@@ -61,7 +64,8 @@ group-brain/
 │  ├─ agent.py           A2：四个工具（记忆/表情包/时间/事实）+ 最多 3 轮的调用循环
 │  ├─ memory.py          A2 的记忆：按 session 存服务端（刷新/换设备都还在）
 │  ├─ learn.py           纠错记忆：用户教过的问法→答案，命中就原样答（不让模型改写）
-│  ├─ facts.py           事实记忆：人工点头过的「谁是什么样」，只索引 approved
+│  ├─ facts.py           事实记忆：人工点头过的「谁是什么样」，只索引 approved；`score()` 给待审打分供自动审阅
+│  ├─ expand.py          查询扩展（v0.16 实验，实测无效，默认关）
 │  ├─ router.py          A3 落地：规则前置 + 自学规则（有把握就先跑工具，省一次往返）
 │  ├─ auth.py            口令门：HMAC cookie + 限速
 │  ├─ admin.py           管理面板后端：点按钮 = 跑一次脚本（单任务锁 + 抓日志）
@@ -76,6 +80,7 @@ group-brain/
 │  ├─ run_agent_eval.py  Agent 评测（50 条 + 6 条上下文题）
 │  ├─ extract_facts.py   从群聊抽事实草稿（写 pending，等人点头）
 │  ├─ mine_rules.py      从评测集挖工具选择规则 + 留出集影子测试
+│  ├─ review_facts.py    事实自动审阅（--apply / --reject-junk / --undo-auto，默认只看）
 │  ├─ pick_queries.py    翻聊天记录，帮你想评测题
 │  ├─ check_queries.py   评测集体检（JSONL 有没有写错）
 │  ├─ rebuild_fts.py     只重建关键词索引（不需要原始库）

@@ -76,6 +76,12 @@ AGENT_HIT_CHARS = int(os.environ.get("AGENT_HIT_CHARS", "240"))          # 单�
 AGENT_MAX_HITS = int(os.environ.get("AGENT_MAX_HITS", "6"))              # 一次工具最多返回几条（以前 5）
 AGENT_MAX_ROUNDS = int(os.environ.get("AGENT_MAX_ROUNDS", "3"))          # 最多几轮工具调用（不动，多给一轮只会让它多绕）
 
+# 「口令即身份」（v0.18）：同一个口令 = 同一段对话记忆，手机和电脑接得上。
+# 之前按浏览器（cookie）分会话，结果是「手机上问一半，电脑上接不上」——
+# 这套东西只有一个使用者，按浏览器分没有意义。
+# 想退回旧行为：.env 里写 AGENT_SHARED_MEMORY=0。
+AGENT_SHARED_MEMORY = os.environ.get("AGENT_SHARED_MEMORY", "1") == "1"
+
 # ---- 融合参数（RRF）----
 # 数据从 483 涨到 564 条之后，「让鱼帮我把人开盒」这条从第 4 名掉出了前 5：
 # 向量那路把它排第 1，但关键词那路多出一堆「字面沾边」的候选，RRF 一平均就挤掉了。
@@ -83,3 +89,12 @@ AGENT_MAX_ROUNDS = int(os.environ.get("AGENT_MAX_ROUNDS", "3"))          # 最�
 # 不是拍脑袋改（默认仍然 1.0 / 60，等于现在的行为）。
 RRF_K = int(os.environ.get("RRF_K", "60"))            # 名次折扣常数，越大越平
 RRF_VEC_W = float(os.environ.get("RRF_VEC_W", "1.5"))  # 向量那一路的权重（关键词那一路固定 1.0）
+
+# ---- 多查询扩展（v0.17）----
+# 难评测集里 48% 的问题和答案是零字面重叠的（「二选一挑饮料」vs「百事还是可口」），
+# 关键词那一路对它们天生 0 命中。做法：让模型把问题改写成几种「群友会打的说法」，
+# 只拿去跑关键词那一路（几乎不花钱），向量那一路仍只用原句（省一次 embedding 调用）。
+# 默认关：新东西先在小流量上验、把数字摆出来，再决定开不开。
+MULTI_QUERY = os.environ.get("MULTI_QUERY", "0") == "1"
+MQ_MAX = int(os.environ.get("MQ_MAX", "3"))            # 最多扩展出几条
+MQ_WEIGHT = float(os.environ.get("MQ_WEIGHT", "0.7"))  # 扩展那几路的 RRF 权重（原句 1.0）

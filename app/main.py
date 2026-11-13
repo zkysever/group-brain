@@ -20,9 +20,10 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from . import admin, agent, auth, coach, db, facts, learn, memory, search
+from . import config as cfg
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.15.0")
+app = FastAPI(title="group-brain", version="0.16.0")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
 PUBLIC = {"/login", "/api/health", "/favicon.ico", "/portfolio"}
@@ -185,6 +186,28 @@ def agent_page() -> str:
     return page.read_text(encoding="utf-8")
 
 
+def _agent_session(request: Request) -> tuple[str, bool]:
+    """返回 (会话 id, 是不是新开的)。
+
+    v0.16：默认把记忆挂到共享会话 `main` 上——口令本身就是身份，同一个口令
+    在手机上问过的，电脑上接着问也记得。`AGENT_SHARED_MEMORY=0` 可以退回
+    「每台浏览器一个会话」的老行为。
+
+    升级时那段记忆不能丢：共享会话还空着的话，把最近用过的那个旧 cookie
+    会话整段搬过来（`memory.adopt_into`），否则用户第一句话就会觉得「它忘了」。
+    """
+    if cfg.AGENT_SHARED_MEMORY:
+        n = memory.adopt_into(conn())
+        if n:
+            print(f"[mem] 把旧会话的 {n} 条记忆并入共享会话")
+        return memory.SHARED_SESSION, False
+
+    session = (request.cookies.get("gb_sess") or "").strip()
+    if session:
+        return session, False
+    return memory.new_session(), True
+
+
 @app.get("/api/agent")
 def api_agent(
     request: Request,
@@ -205,10 +228,7 @@ def api_agent(
         return {"ok": False, "error": "问题不能为空", "answer": "", "trace": []}
 
     c = conn()
-    session = (request.cookies.get("gb_sess") or "").strip()
-    fresh = not session
-    if fresh:
-        session = memory.new_session()
+    session, fresh = _agent_session(request)
 
     past = memory.recent(c, session, agent.HISTORY_TURNS)
     if not past and history:
@@ -224,9 +244,10 @@ def api_agent(
         memory.trim(c, session, memory.KEEP_TURNS)
     res["memory_turns"] = memory.turn_count(c, session)
     res["session_new"] = fresh
+    res["memory_shared"] = cfg.AGENT_SHARED_MEMORY
 
     resp = JSONResponse(res)
-    if fresh:
+    if fresh and not cfg.AGENT_SHARED_MEMORY:
         resp.set_cookie(
             "gb_sess",
             session,
@@ -240,11 +261,17 @@ def api_agent(
 
 @app.api_route("/api/agent/forget", methods=["GET", "POST"])
 def api_agent_forget(request: Request):
-    """清空当前浏览器的对话记忆。用户要求「别再删记忆」，但总得留个能删的按钮。"""
-    session = (request.cookies.get("gb_sess") or "").strip()
-    if not session:
-        return {"ok": True, "deleted": 0}
-    return {"ok": True, "deleted": memory.forget(conn(), session)}
+    """清空当前记忆。用户要求「别再删记忆」，但总得留个能删的按钮。
+
+    v0.16 起记忆是共享的：手机上点一下，电脑上那段也一起清掉——所以返回里
+    带 `shared`，前端提示语也要说清楚。
+    """
+    session, _ = _agent_session(request)
+    return {
+        "ok": True,
+        "deleted": memory.forget(conn(), session),
+        "shared": cfg.AGENT_SHARED_MEMORY,
+    }
 
 
 @app.post("/api/agent/fix")
@@ -259,7 +286,7 @@ def api_agent_fix(
     参数走 query string 而不是表单：服务器没装 python-multipart，
     `Form(...)` 会让启动时直接报错，为一条纠正去加依赖不值得。
     """
-    session = (request.cookies.get("gb_sess") or "").strip()
+    session, _ = _agent_session(request)
     try:
         cid = learn.record(conn(), q, right, wrong=wrong, source="web", session_id=session)
     except ValueError as e:

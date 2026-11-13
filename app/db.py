@@ -106,7 +106,8 @@ CREATE TABLE IF NOT EXISTS facts (
     msg_ids    TEXT,              -- 依据的消息 id，逗号分隔
     status     TEXT NOT NULL DEFAULT 'pending',   -- pending / approved / rejected
     hits       INTEGER NOT NULL DEFAULT 0,
-    decided_at TEXT
+    decided_at TEXT,
+    auto       INTEGER NOT NULL DEFAULT 0   -- 1 = 机器自动点头的（可一键撤销），见 facts.auto_approve
 );
 
 -- 规则自学习（v0.15）：从评测语料里挖「某种问法一定该调某个工具」，
@@ -120,6 +121,15 @@ CREATE TABLE IF NOT EXISTS rules (
     note      TEXT,
     enabled   INTEGER NOT NULL DEFAULT 0,
     ts        TEXT NOT NULL
+);
+
+-- 查询扩展缓存（v0.17）：同一个问题只问模型一次。
+-- 为什么要缓存：扩展是每次查询都调一次 LLM，不缓存的话同一句话反复搜会反复花钱；
+-- 而且评测跑两遍时，第二遍应该跟第一遍用同一批扩展，否则数字不可比。
+CREATE TABLE IF NOT EXISTS query_expansions (
+    qkey TEXT PRIMARY KEY,     -- 归一化后的问题（NFKC + 小写 + 去标点空白）
+    alts TEXT NOT NULL,        -- JSON 数组字符串
+    ts   TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
@@ -149,11 +159,38 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+# 老库的补丁：SCHEMA 里 CREATE TABLE IF NOT EXISTS 不会给已存在的表加列，
+# 所以新加的列要在这里单独 ALTER 一次（每条只跑一次，代价可以忽略）。
+_MIGRATIONS = (
+    ("facts", "auto", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+
+def _migrate(conn: sqlite3.Connection) -> list[str]:
+    done: list[str] = []
+    for table, col, decl in _MIGRATIONS:
+        try:
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        except sqlite3.Error:
+            continue
+        if not cols or col in cols:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            done.append(f"{table}.{col}")
+        except sqlite3.Error:
+            pass
+    if done:
+        conn.commit()
+    return done
+
+
 def init() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
         conn.commit()
+        _migrate(conn)
     finally:
         conn.close()
 

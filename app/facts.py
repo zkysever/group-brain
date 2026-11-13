@@ -220,6 +220,238 @@ def bump(conn: sqlite3.Connection, ids: list[int]) -> None:
     conn.commit()
 
 
+# ---------------------------------------------------------------- 自动点头（v0.19）
+#
+# 为什么要有这一步：待审列表堆到 200 多条时，人会直接放弃——然后就再也不审了，
+# 于是「人工把关」这条防线等于没有。真正的出路不是催人点，而是**把可机器验证的那部分自动掉**。
+#
+# 唯一可信的机器信号是「原话真的在它引用的那条消息里」：
+#   - 抽取的模型会编，但「编出来的原话」在 messages 表里查不到，这条信号抓得住它；
+#   - 这不是语义判断，是字符串比对，不会引入新的主观性。
+# 所以自动点头的硬条件是 grounded（原话能在 msg_ids 里找到），再加一点身份/长度下限。
+# 只要 grounded，即使 claim 的表达方式不完美，它「不是凭空编的」这件事是确定的。
+# 自动点头的都打 auto=1，`--undo-auto` 可以一键全退回 pending。
+
+AUTO_MIN_SCORE = 11
+AUTO_MAX_JUNK = 3
+_BAD_SUBJECTS = {"bot", "机器人", "助手", "群助手"}
+# 结论里出现这些词的，多半是「机器人怎么怎么样」这类元信息，不是群友的事实
+_META_WORDS = ("bot", "机器人", "助手", "astrbot", "@", "指令", "插件")
+
+
+def _senders(conn: sqlite3.Connection) -> set[str]:
+    try:
+        return {
+            str(r[0])
+            for r in conn.execute(
+                "SELECT DISTINCT sender_name FROM messages "
+                "WHERE sender_name IS NOT NULL AND sender_name != ''"
+            )
+        }
+    except sqlite3.Error:
+        return set()
+
+
+def _parse_ids(raw: Any) -> list[int]:
+    out: list[int] = []
+    for part in str(raw or "").replace("，", ",").replace(" ", ",").split(","):
+        part = part.strip()
+        if part.isdigit():
+            out.append(int(part))
+    return out[:20]
+
+
+def _evidence(conn: sqlite3.Connection, quote: str, msg_ids: Any) -> tuple[bool, str]:
+    """返回 (原话是否真在引用消息里, 引用消息的原文拼起来)。
+
+    「原话能查到」只证明它没编，所以这里顺手把原文带出来，
+    后面还要看「结论到底有没有原话支撑」——两句「我要当」撑不起「想当最牛逼的动漫人物」。
+    """
+    ids = _parse_ids(msg_ids)
+    needle = str(quote or "").strip().strip("「」\"“”'‘’ ")[:12]
+    if not ids:
+        return False, ""
+    marks = ",".join("?" * len(ids))
+    try:
+        rows = conn.execute(f"SELECT text FROM messages WHERE id IN ({marks})", ids).fetchall()
+    except sqlite3.Error:
+        return False, ""
+    pool = " ".join((r[0] or "") for r in rows)
+    if not needle:
+        return False, pool
+    return (needle in pool), pool
+
+
+def grounded(conn: sqlite3.Connection, quote: str, msg_ids: Any) -> bool:
+    return _evidence(conn, quote, msg_ids)[0]
+
+
+def _support_ratio(claim: str, quote: str, pool: str) -> float:
+    """结论的二元组有多少能在「原话 + 引用消息」里找到。"""
+    cg = _grams(claim)
+    if not cg:
+        return 0.0
+    eg = _grams(quote) | _grams(pool)
+    return len(cg & eg) / len(cg)
+
+
+def score(conn: sqlite3.Connection, row: Any, senders: set[str] | None = None) -> tuple[int, list[str]]:
+    """给一条待审事实打分。分数只用来分流，不用来排序：
+
+    - `≥ AUTO_MIN_SCORE`（9）→ 自动点头（事实清楚、主语是真人、结论不带元信息）
+    - `≤ AUTO_MAX_JUNK`（3）→ 自动拒绝（原话查不到 / 主语是机器人 / 结论只说了「相关」）
+    - 中间 → 留给人看
+
+    踩过两个坑，都是**打分维度选错了**：
+    1. 光看「原话能在引用消息里查到」→ 140 条过了 138 条。抽取本来就是抄原话，
+       能查到只证明它没编，不证明这条有用。
+    2. 又加「原话至少 8 个字」→ 把「147｜想吃鱼片」这种真事实也毙了。
+       原话短不等于事实假，短的原话照样能撑起一条结论，所以长度只能做加减分，不能做门槛。
+    """
+    senders = _senders(conn) if senders is None else senders
+    subject = str(row["subject"] or "").strip()
+    claim = str(row["claim"] or "").strip()
+    quote = str(row["quote"] or "").strip()
+    why: list[str] = []
+
+    ok, pool = _evidence(conn, quote, row["msg_ids"])
+    if not ok:
+        return 0, ["原话在引用消息里查不到（可能是编的）"]
+
+    if subject.lower() in _BAD_SUBJECTS:
+        return 2, ["原话可查，但主语是机器人自己"]
+
+    low = claim.lower()
+    if any(w in low for w in _META_WORDS):
+        return 3, ["原话可查，但结论在讲机器人/指令"]
+    if any(w in claim for w in ("相关", "提到", "说过")) and len(claim) <= 12:
+        return 3, ["原话可查，但结论只说了「相关/提到」"]
+
+    if subject not in senders:
+        return 5, ["原话可查，但主语不是群里说过话的人"]
+
+    ratio = _support_ratio(claim, quote, pool)
+    if ratio < 0.5:
+        # 门槛定在 0.5 是量出来的：定成 0.35 时，「还来污染管理员了」会被读成
+        # 「是群管理员」、「ig」会被读成「看好IG」——这类推断留着比没有更糟。
+        return 6, [f"原话撑不起这条结论（支撑度 {ratio:.0%}），留给人看"]
+
+    s = 9
+    why.append("原话可查")
+    why.append("主语是群里说过话的人")
+    if ratio >= 0.6:
+        s += 1
+        why.append(f"结论有原话支撑（{ratio:.0%}）")
+    if 3 <= len(claim) <= 40:
+        s += 1
+    else:
+        s -= 2
+        why.append("结论长度反常")
+    return s, why
+
+def auto_approve(
+    conn: sqlite3.Connection,
+    min_score: int = AUTO_MIN_SCORE,
+    dry: bool = True,
+    limit: int = 0,
+) -> dict[str, Any]:
+    """扫 pending，够分的自动 approved（打 auto=1）。dry=True 只报告不写库。"""
+    rows = conn.execute(
+        "SELECT id, subject, claim, quote, msg_ids FROM facts WHERE status = 'pending' ORDER BY id"
+    ).fetchall()
+    if limit and limit > 0:
+        rows = rows[:limit]
+    senders = _senders(conn)
+    picked: list[tuple[int, int, list[str]]] = []
+    # 同一件事常被抽出两次（「设置了每日重置使鱼忘记扎口」/「设置了每日重置导致鱼忘了扎口」），
+    # 自动点头要顺手去重，否则事实库里会塞满近义条目、把检索位挤掉。
+    seen: list[tuple[str, set[str]]] = []
+    try:
+        for r in conn.execute(
+            "SELECT subject, claim FROM facts WHERE status = 'approved'"
+        ):
+            seen.append((str(r["subject"]), _grams(str(r["claim"]))))
+    except sqlite3.Error:
+        pass
+    for r in rows:
+        sc, why = score(conn, r, senders)
+        if sc < min_score:
+            continue
+        subj, cg = str(r["subject"]), _grams(str(r["claim"]))
+        if any(s == subj and _similar(g, cg) >= 0.75 for s, g in seen):
+            continue
+        seen.append((subj, cg))
+        picked.append((int(r["id"]), sc, why))
+
+    if not dry and picked:
+        marks = ",".join("?" * len(picked))
+        conn.execute(
+            f"UPDATE facts SET status='approved', auto=1, decided_at=? WHERE id IN ({marks})",
+            (_now(), *[p[0] for p in picked]),
+        )
+        conn.commit()
+        rebuild_fts(conn)
+
+    return {
+        "scanned": len(rows),
+        "picked": len(picked),
+        "applied": 0 if dry else len(picked),
+        "detail": [
+            {"id": i, "score": sc, "why": why} for i, sc, why in picked[:20]
+        ],
+    }
+
+
+def auto_reject(
+    conn: sqlite3.Connection,
+    max_score: int = AUTO_MAX_JUNK,
+    dry: bool = True,
+    limit: int = 0,
+) -> dict[str, Any]:
+    """扫 pending，明显是垃圾的自动 rejected（打 auto=2）。
+
+    只吃「几乎肯定没用」的：原话查不到 / 原话太短 / 主语是机器人且结论在讲元信息。
+    这些留着只会把待审列表撑大，人越看越不想看。
+    """
+    rows = conn.execute(
+        "SELECT id, subject, claim, quote, msg_ids FROM facts WHERE status = 'pending' ORDER BY id"
+    ).fetchall()
+    if limit and limit > 0:
+        rows = rows[:limit]
+    senders = _senders(conn)
+    picked: list[tuple[int, int, list[str]]] = []
+    for r in rows:
+        sc, why = score(conn, r, senders)
+        if sc <= max_score:
+            picked.append((int(r["id"]), sc, why))
+
+    if not dry and picked:
+        marks = ",".join("?" * len(picked))
+        conn.execute(
+            f"UPDATE facts SET status='rejected', auto=2, decided_at=? WHERE id IN ({marks})",
+            (_now(), *[p[0] for p in picked]),
+        )
+        conn.commit()
+
+    return {
+        "scanned": len(rows),
+        "picked": len(picked),
+        "applied": 0 if dry else len(picked),
+        "detail": [{"id": i, "score": sc, "why": why} for i, sc, why in picked[:20]],
+    }
+
+
+def undo_auto(conn: sqlite3.Connection) -> int:
+    """把所有自动点头/自动拒绝的退回待审（一键撤销）。人工点过的（auto=0）不动。"""
+    cur = conn.execute(
+        "UPDATE facts SET status='pending', auto=0, decided_at=? WHERE auto != 0", (_now(),)
+    )
+    conn.commit()
+    if cur.rowcount:
+        rebuild_fts(conn)
+    return int(cur.rowcount or 0)
+
+
 def stats(conn: sqlite3.Connection) -> dict[str, int]:
     try:
         row = conn.execute(
