@@ -14,16 +14,59 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import db, search
+from app import config as cfg, db, search
 
 from app.config import EVAL_DIR
 
 TOP_K = 5
 MODES = ("keyword", "vector", "hybrid")
+RERANK = False
+DEPTH = 20
+_RERANK_URL = "https://api.siliconflow.cn/v1/rerank"
+_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
+
+
+def _hit_text(h: dict) -> str:
+    return ((h.get("text") or "") + " " + (h.get("keywords") or "")).strip()
+
+
+def rerank_hits(question: str, hits: list[dict]) -> list[dict]:
+    """用硅基流动的 reranker 重排。失败就原样返回——评测不能因为一次网络抖动整轮作废。"""
+    if len(hits) < 2:
+        return hits
+    key = cfg.SILICONFLOW_KEY
+    if not key:
+        print("[warn] 没配 SILICONFLOW_API_KEY，跳过重排")
+        return hits
+    body = json.dumps({
+        "model": _RERANK_MODEL, "query": question,
+        "documents": [_hit_text(h) for h in hits],
+        "top_n": len(hits), "return_documents": False,
+    }).encode()
+    for attempt in range(2):
+        try:
+            req = urllib.request.Request(
+                _RERANK_URL, data=body,
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=60) as r:
+                data = json.loads(r.read())
+            order = [d["index"] for d in data["results"]]
+            return [hits[i] for i in order if 0 <= i < len(hits)]
+        except Exception as e:  # noqa: BLE001
+            if attempt:
+                print(f"[warn] 重排失败，保持原序: {e}")
+                return hits
+            time.sleep(1.5)
+    return hits
+
 
 
 def hit_rank(hits: list[dict], expect: list[str]) -> int:
@@ -38,9 +81,13 @@ def hit_rank(hits: list[dict], expect: list[str]) -> int:
 def run(conn, cases: list[dict], mode: str) -> tuple[list[tuple], float, float]:
     hits = mrr = 0.0
     rows = []
+    depth = max(TOP_K, DEPTH) if RERANK else TOP_K
     for c in cases:
-        res = search.search_all(conn, c["q"], "all", TOP_K, mode)
-        rank = hit_rank(res["hits"], c.get("expect") or [])
+        res = search.search_all(conn, c["q"], "all", depth, mode)
+        got = res["hits"]
+        if RERANK:
+            got = rerank_hits(c["q"], got)
+        rank = hit_rank(got, c.get("expect") or [])
         if rank:
             hits += 1
             mrr += 1.0 / rank
@@ -55,7 +102,15 @@ def main() -> None:
     ap.add_argument("--queries", default="", help="评测集文件（默认 eval/queries.jsonl；难集用 eval/queries_hard.jsonl）")
     ap.add_argument("--top", type=int, default=5, help="取前几名算命中，默认 5（线上 /api/search 默认 limit=10，口径要对齐就传 10）")
     ap.add_argument("--mq", default="", choices=["", "on", "off"], help="多查询扩展：on/off 覆盖配置（默认关），留空=按 config")
+    ap.add_argument("--rerank", action="store_true", help="先取 --depth 条候选，再用 bge-reranker-v2-m3 重排后取前 --top 名")
+    ap.add_argument("--depth", type=int, default=20, help="重排的候选池大小，默认 20")
     args = ap.parse_args()
+
+    if args.rerank:
+        global RERANK, DEPTH
+        RERANK = True
+        DEPTH = max(args.depth, args.top * 2)
+        print(f"[重排] 开（池 {DEPTH} 条，{_RERANK_MODEL}）")
 
     if args.mq:
         from app import config as _cfg
