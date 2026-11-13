@@ -42,6 +42,20 @@ _PROMPT = """原句：{q}
 2. 尽量换用不同的词（同义说法、口语、可能出现在记录里的原词），不要只是删字；
 3. 不要解释、不要编号、不要 markdown，只输出一个 JSON 数组，例如 ["甲","乙","丙"]"""
 
+# 第二版提示词（2026-11-13 晚加的）：不猜「这句话还能怎么说」，而是猜「记录里那句话长什么样」。
+# 第一版问句改写在难集上是负收益（0.760 → 0.720），因为模型给的是同义问句，
+# 而难集缺的字在**答案那一侧**（问「鱼什么时候才开口说话」，记录里是「不@就不会说话」）。
+_PROMPT_RECORD = """用户的问法：{q}
+
+你现在不是回答问题，是要猜「群里当时那句话长什么样」。
+要求：
+1. 输出 3 条，每条不超过 12 字，写成群友在群里真会发的陈述句片段，
+   不要问句、不要出现「谁 / 什么时候 / 为什么 / 吗 / 怎么」；
+2. 优先用具体的口语词和动作词（例：问「它什么时候才说话」→ 可能是「不@就不说话」「怎么不理人」）；
+3. 不要解释、不要编号，只输出一个 JSON 数组，例如 ["甲","乙","丙"]"""
+
+_PROMPTS = {"generic": _PROMPT, "record": _PROMPT_RECORD}
+
 _SPLIT = re.compile(r"[^0-9a-z\u4e00-\u9fff]+")
 
 
@@ -150,8 +164,11 @@ def _to_cache(conn: Any, qkey: str, alts: list[str]) -> None:
 def expand(conn: Any, question: str, use_cache: bool = True) -> list[str]:
     """返回这句话的其它说法（不含原句）。失败抛 ExpandError，由上层决定退不退回原句。"""
     q = (question or "").strip()
-    qkey = norm_key(q)
-    if len(qkey) < 2:
+    style = getattr(cfg, "MQ_PROMPT", "generic")
+    prompt = _PROMPTS.get(style, _PROMPT)
+    # 缓存键带风格：换提示词以后不能复用旧结果，否则量出来的还是老版本的数
+    qkey = f"{style}:{norm_key(q)}"
+    if len(norm_key(q)) < 2:
         return []
     if use_cache:
         cached = _from_cache(conn, qkey)
@@ -165,7 +182,7 @@ def expand(conn: Any, question: str, use_cache: bool = True) -> list[str]:
             "max_tokens": 120,
             "messages": [
                 {"role": "system", "content": _SYSTEM},
-                {"role": "user", "content": _PROMPT.format(q=q)},
+                {"role": "user", "content": prompt.format(q=q)},
             ],
         }
     )

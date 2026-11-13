@@ -98,3 +98,6 @@ RRF_VEC_W = float(os.environ.get("RRF_VEC_W", "1.5"))  # 向量那一路的权�
 MULTI_QUERY = os.environ.get("MULTI_QUERY", "0") == "1"
 MQ_MAX = int(os.environ.get("MQ_MAX", "3"))            # 最多扩展出几条
 MQ_WEIGHT = float(os.environ.get("MQ_WEIGHT", "0.7"))  # 扩展那几路的 RRF 权重（原句 1.0）
+# 提示词风格：generic=「这句话还能怎么说」（第一版，实测负收益）；
+# record=「记录里那句话长什么样」（第二版，冲着答案侧的字去）
+MQ_PROMPT = os.environ.get("MQ_PROMPT", "generic")
