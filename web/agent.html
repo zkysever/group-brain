@@ -121,6 +121,9 @@ textarea:focus { outline: none; border-color: var(--accent); }
     同一个问题，<a href="/">直接检索</a>只有结果没有解释；这里多了「它有没有乱调工具」。
     <span style="color:var(--dim)">· 记忆存在服务器上，刷新/换设备都还在</span>
     <button id="forget" class="mini">清空记忆</button>
+    <br>
+    <span style="color:var(--dim)">你教它的、它自学到的规则，都在</span>
+    <a href="/facts">事实审阅页</a><span style="color:var(--dim)">（规则在那页最下面）</span>
   </div>
 </div>
 
@@ -243,7 +246,7 @@ function renderFix(q, d) {
     try {
       const r = await fetch('/api/agent/fix?q=' + encodeURIComponent(q)
         + '&right=' + encodeURIComponent(right)
-        + '&wrong=' + encodeURIComponent(d.answer || ''));
+        + '&wrong=' + encodeURIComponent(d.answer || ''), { method: 'POST' });
       const j = await r.json();
       if (j.ok) {
         hint.textContent = '记住了。以后再问这句话，我直接照这个答（现在一共学了 ' + j.total + ' 条）。';
