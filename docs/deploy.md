@@ -278,9 +278,11 @@ MAILTO=""
 SHELL=/bin/bash
 HOME=/root
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-30 3 * * * cd /opt/group-brain && /opt/group-brain/.venv/bin/python scripts/backup_db.py >> /var/log/gb-backup.log 2>&1
+20 3 * * * cd /opt/group-brain && set -a && . ./.env && set +a && .venv/bin/python scripts/sync_messages.py >> /var/log/gb-sync.log 2>&1
+25 3 * * * cd /opt/group-brain && set -a && . ./.env && set +a && .venv/bin/python scripts/extract_facts.py --new >> /var/log/gb-facts.log 2>&1
+30 3 * * * cd /opt/group-brain && .venv/bin/python scripts/backup_db.py >> /var/log/gb-backup.log 2>&1
 0 9 * * 1 bash /opt/group-brain/scripts/cron_coach.sh >> /var/log/gb-coach.log 2>&1
-0 4 1 * * cd /opt/group-brain && MEME_PACKS=/opt/group-brain/meme-packs /opt/group-brain/.venv/bin/python scripts/restore_check.py >> /var/log/gb-restore.log 2>&1
+0 4 1 * * cd /opt/group-brain && MEME_PACKS=/opt/group-brain/meme-packs .venv/bin/python scripts/restore_check.py >> /var/log/gb-restore.log 2>&1
 ```
 
 第二条是「每周一 09:00 自动生成上一周的周报」，见下面「定时任务」一节。
@@ -351,16 +353,33 @@ MEME_PACKS=/opt/group-brain/meme-packs .venv/bin/python scripts/restore_check.py
 
 # 定时任务（2026-11-10 加的）
 
-服务器上现在有四条 cron，都在 root 的 crontab 里：
+服务器上现在有五条 cron，都在 root 的 crontab 里：
 
 | 时间 | 干什么 | 日志 | 脚本 |
 |---|---|---|---|
 | 每天 03:20 | 从 AstrBot 活性库增量同步群消息，再补新消息的向量 | `/var/log/gb-sync.log` | `scripts/sync_messages.py` |
+| 每天 03:25 | 只抽「新消息」出事实草稿，写进 `facts` 表待审 | `/var/log/gb-facts.log` | `scripts/extract_facts.py --new` |
 | 每天 03:30 | 备份数据库，留 14 份 | `/var/log/gb-backup.log` | `scripts/backup_db.py` |
 | 每周一 09:00 | 生成上一周的周报，写进 `reports` 表 | `/var/log/gb-coach.log` | `scripts/cron_coach.sh` |
 | 每月 1 号 04:00 | 拿最新备份做一次恢复演练（只验证不修复） | `/var/log/gb-restore.log` | `scripts/restore_check.py` |
 
-顺序不是随手排的：**先同步（03:20）再备份（03:30）**，这样每天早上那份备份里装的是当天最新的数据。
+顺序不是随手排的：**先同步（03:20）→ 再抽事实（03:25）→ 最后备份（03:30）**，这样每天早上那份备份里装的是当天最新的数据，事实草稿也是基于当天最新消息抽的。
+
+## 事实抽取为什么是增量的（2026-11-13 改）
+
+第一版每次 `--limit 600` 全量重抽：564 条要 29 批、45 秒、几毛钱，而且**以前抽过的还会再抽一遍**（靠去重挡着，白花钱）。
+
+现在脚本带一个游标 `facts_last_id`（存在 `meta` 表里），`--new` 只读 `id > 游标` 的消息，跑完把游标推到本轮最大 id：
+
+```
+[增量] 上次抽到消息 id=573
+[完成] 批数 1、耗时 3s；本轮新增 0、重复 0、无效 0
+[游标] facts_last_id = 573（下次 --new 从这里往后抽）
+```
+
+好处是 cron 那条每天只处理「昨天新来的几十条」，几秒、几分钱。代价是**如果中途换了数据库或清过库，游标要手动清零**（`DELETE FROM meta WHERE k='facts_last_id'`），否则它会一直以为「都是旧的」。
+
+抽出来的还是 `pending`，`/facts` 不点头就不进检索——这条没变。
 反过来就是「备份永远比数据晚一天」。
 
 ## 周报为什么包一层 `.sh`

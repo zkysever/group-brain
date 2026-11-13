@@ -129,20 +129,27 @@ def main() -> None:
     ap.add_argument("--since", default="", help="只抽这个时间之后的消息，如 2026-11-01")
     ap.add_argument("--batch", type=int, default=BATCH)
     ap.add_argument("--dry", action="store_true", help="只打印，不写库")
+    ap.add_argument("--new", action="store_true", help="只抽上次以后的新消息（cron 用这个）")
     args = ap.parse_args()
 
     conn = db.connect()
+    last_id = int(db.get_meta(conn, "facts_last_id", "0") or 0)
     sql = "SELECT id, ts, sender_name, text FROM messages WHERE text <> ''"
     params: list = []
+    if args.new:
+        sql += " AND id > ?"
+        params.append(last_id)
+        print(f"[增量] 上次抽到消息 id={last_id}")
     if args.since:
         sql += " AND ts >= ?"
         params.append(args.since)
-    sql += " ORDER BY ts LIMIT ?"
+    sql += " ORDER BY id LIMIT ?" if args.new else " ORDER BY ts LIMIT ?"
     params.append(args.limit)
     rows = conn.execute(sql, params).fetchall()
     if not rows:
-        print("[!] 没有消息可抽")
+        print("[!] 没有新消息可抽")
         return
+    max_id = max(r["id"] for r in rows)
 
     total = {"added": 0, "dup": 0, "bad": 0}
     t0 = time.time()
@@ -173,13 +180,15 @@ def main() -> None:
         )
 
     if not args.dry:
+        db.set_meta(conn, "facts_last_id", str(max_id))
         st = facts.stats(conn)
         print(
             f"\n[完成] 批数 {batches}、耗时 {time.time()-t0:.0f}s；"
             f"本轮新增 {total['added']}、重复 {total['dup']}、无效 {total['bad']}"
         )
         print(f"[现状] 待审 {st['pending']} / 生效 {st['approved']} / 已拒 {st['rejected']}")
-        print("下一步：打开 /facts 一条条点头，或者 `python scripts/review_facts.py list`")
+        print(f"[游标] facts_last_id = {max_id}（下次 --new 从这里往后抽）")
+        print("下一步：打开 /facts 一条条点头")
     conn.close()
 
 

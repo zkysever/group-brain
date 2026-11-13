@@ -29,7 +29,7 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | 表情包按描述/关键词检索（122 张，直接出图） | ✅ |
 | 记忆回放：点一下看这条消息前后说了什么 | ✅ v0.6 |
 | 中文 bigram 分词（索引与查询同一套切法） | ✅ |
-| 检索评测（48 条：0.979 / MRR 0.948；难集 14 条：关键词 0.714 → 融合 1.000） | ✅ `EVAL.md` |
+| 检索评测（48 条 0.958 / MRR 0.927；难集 50 条 top5：关键词 0.600 → 融合 0.760、MRR 0.663） | ✅ `EVAL.md` |
 | Agent 模式：模型自己决定调不调工具 | ✅ A2，见 `/agent` |
 | 规则前置：有把握的题跳过「决定调不调」那次往返 | ✅ v0.10，`app/router.py`，同题快 35% |
 | Agent 记忆存在服务端（刷新/换设备都还在） | ✅ v0.11，`app/memory.py` + `agent_turns` 表 |
@@ -106,7 +106,7 @@ group-brain/
 │  └─ group_brain.db     运行时生成的索引
 └─ eval/
    ├─ queries.jsonl      检索评测集（48 条，开卷：查询里通常含答案的原词）
-├─ queries_hard.jsonl 难集（14 条，换说法、不重字、描述性要图）
+├─ queries_hard.jsonl 难集（50 条，换说法、不重字、描述性要图；expect 都用 SQL 验过存在）
    ├─ agent_cases.jsonl  Agent 评测集（50 条）
    ├─ agent_history_cases.jsonl 上下文题（6 条，带 history）
    ├─ agent_holdout.jsonl 留出集（10 条，写完规则之后才写的）
@@ -233,7 +233,8 @@ bigram 把"大肥鱼"变成 `大肥 肥鱼`，搜"肥鱼"必中。
 
 ```
 python scripts/run_eval.py                          # 48 条原集
-python scripts/run_eval.py --queries eval/queries_hard.jsonl   # 14 条难集
+python scripts/run_eval.py --queries eval/queries_hard.jsonl   # 50 条难集
+python scripts/run_eval.py --queries eval/queries_hard.jsonl --top 10   # 对齐线上 limit=10 的口径
 python scripts/bench_fusion.py --grid "k=60 w=1,1.5,2"        # 扫融合旋钮
 ```
 
@@ -270,7 +271,8 @@ python scripts/bench_fusion.py --grid "k=60 w=1,1.5,2"        # 扫融合旋钮
 - ~~**规则前置**：`agent.run()` 前加一层 `rule_route()`~~ —— 已做（v0.10，`app/router.py`）：同一份 50 条题
   7209 ms → 4661 ms、模型往返 1.04 → 0.86，正确率不变。第一版把结果塞 system 消息是错的（38 条被前置的题模型全部又自己查一遍），见 `docs/agent.md`「规则前置」一节
 - ~~**工程收尾**~~ —— 已做：CI（`.github/workflows/ci.yml`）、依赖锁版本、LICENSE、每天自动备份 + 拉回本机，见「工程收尾」一节
-- ~~**评测加难**~~ —— 已做（v0.12）：`eval/queries_hard.jsonl` 14 条「换说法」题，关键词 0.714 → 融合 1.000；`scripts/bench_fusion.py` 扫出 `RRF_VEC_W=1.5`（两套 MRR 都涨）。还剩一条 `K=20/W=3.0` 的备选，等难集扩到 50 条再定
+- ~~**评测加难**~~ —— 已做（v0.12 造 14 条，v0.15.1 扩到 50 条）：难集 top5 关键词 0.600 → 融合 0.760（+26.7%）、MRR 0.663；`RRF_VEC_W=1.5` 保持不变（`K=10` 只多救 1 条＝噪声，见 `EVAL.md` 10.7）
+- 难集失败的 12 条集中在「问法和答法表达距离太远」，不是分词问题——想再往上，要么换更强 embedding，要么靠第 2 层事实把说法归一
 - ~~**学习能力（第 1 层）：纠错回路**~~ —— 已做（v0.13）：`corrections` 表 + `/api/agent/fix`，教过的问题下次 0.2ms 直接照答（原来 4302ms / 2 轮工具）。见 `docs/agent.md`「纠错记忆」
 - ~~**学习能力（第 2 层）：事实抽取**~~ —— 已做（v0.14）：scripts/extract_facts.py 抽草稿（564 条消息抽出 153 条）、/facts 一条条点头、点头后才进 search_facts 检索。新工具第一版反而把 50 条从 49 掉到 46（模型被工具描述带着乱调），修完回到 48/50，见 EVAL.md 第十二节
 - **学习能力（第 3 层）：规则自学习** —— 从真实对话里挖「问法 → 该调哪个工具」，自动生成 `router.py` 的规则；规则多了会互相打架，必须有评测兜底

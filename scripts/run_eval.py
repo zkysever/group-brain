@@ -53,7 +53,12 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", default="", choices=["", *MODES], help="留空=三种并排")
     ap.add_argument("--queries", default="", help="评测集文件（默认 eval/queries.jsonl；难集用 eval/queries_hard.jsonl）")
+    ap.add_argument("--top", type=int, default=5, help="取前几名算命中，默认 5（线上 /api/search 默认 limit=10，口径要对齐就传 10）")
     args = ap.parse_args()
+
+    global TOP_K
+    if args.top >= 1:
+        TOP_K = args.top
 
     path = Path(args.queries) if args.queries else EVAL_DIR / "queries.jsonl"
     if not path.is_absolute():

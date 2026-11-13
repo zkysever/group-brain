@@ -34,7 +34,7 @@ from app.config import EVAL_DIR  # noqa: E402
 
 SETS = [
     ("48 条（原集，开卷）", EVAL_DIR / "queries.jsonl"),
-    ("14 条（难集，换说法）", EVAL_DIR / "queries_hard.jsonl"),
+    ("难集（换说法，现在 50 条）", EVAL_DIR / "queries_hard.jsonl"),
 ]
 
 
