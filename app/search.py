@@ -100,6 +100,19 @@ def _kw_memes(conn, query: str, limit: int) -> list[tuple[int, float]]:
     return [(int(r["id"]), 0.5) for r in rows]
 
 
+def _kw_glosses(conn, query: str, limit: int) -> list[tuple[int, float]]:
+    """第三路：查「这条消息在说什么」的白话解释（v0.17）。
+
+    为什么要单独一路而不是把 gloss 拼进 messages_fts：拼进去会让 bm25 的词频
+    被两段文本搅在一起，字面精确匹配反而变钝；单独一路可以各自排序，同一句话
+    在两条路上都出现时 RRF 会自然给它加分。
+    """
+    try:
+        return _search_fts(conn, "glosses_fts", "msg_id", query, limit)
+    except sqlite3.OperationalError:
+        return []  # 还没建 gloss 索引的老库
+
+
 # ---------------------------------------------------------------- RRF 融合
 
 def rrf_fuse(
@@ -289,6 +302,12 @@ def search_all(
                 lists.append(_kw_messages(conn, qx, deep))
                 kinds.append("kw")
                 factors.append(fac)
+                if cfg.GLOSS_ROUTE:
+                    gl = _kw_glosses(conn, qx, deep)
+                    if gl:
+                        lists.append(gl)
+                        kinds.append("gloss")
+                        factors.append(fac)
             if vec_on:
                 vec = _vec_safe(conn, qx, "message", deep)
                 if vec is None:
@@ -321,7 +340,7 @@ def search_all(
         ranked = lists[0]
     else:
         weights = [
-            (cfg.RRF_VEC_W if kd == "vec" else 1.0) * factors[i]
+            (cfg.RRF_VEC_W if kd == "vec" else cfg.GLOSS_W if kd == "gloss" else 1.0) * factors[i]
             for i, kd in enumerate(kinds)
         ]
         ranked = rrf_fuse(lists, k=cfg.RRF_K, weights=weights)

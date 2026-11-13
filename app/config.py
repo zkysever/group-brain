@@ -101,3 +101,12 @@ MQ_WEIGHT = float(os.environ.get("MQ_WEIGHT", "0.7"))  # 扩展那几路的 RRF 
 # 提示词风格：generic=「这句话还能怎么说」（第一版，实测负收益）；
 # record=「记录里那句话长什么样」（第二版，冲着答案侧的字去）
 MQ_PROMPT = os.environ.get("MQ_PROMPT", "generic")
+
+# ---- 消息句意索引（v0.17）----
+# 查询侧改了四版全是负收益，说明缺的字在**答案侧**：群里说的是「不@他是不会说话的」，
+# 用户问的是「鱼什么时候才开口」。所以反过来，给每条消息补一句「它在说什么」，
+# 把这句话单独建一路 FTS，查询时多一路召回（`scripts/gloss_messages.py` 负责生成）。
+# 默认关：先在同一份快照上比出数字，再决定开不开。
+GLOSS_ROUTE = os.environ.get("GLOSS_ROUTE", "0") == "1"
+GLOSS_W = float(os.environ.get("GLOSS_W", "1.0"))      # 句意那一路的 RRF 权重
+
