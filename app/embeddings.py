@@ -53,7 +53,11 @@ def _post(body: bytes, timeout: int = 60, attempts: int = 3) -> dict:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:300]
-            if e.code in (429, 500, 502, 503, 504) and i < attempts - 1:
+            # 20015「The parameter is invalid」是服务端偶发的手抖：同一个请求重发就好。
+            # 2026-11-13 跑 101 条查询时见过一次，单独重放又 101/101 全过，所以按可重试处理；
+            # 真正的参数错误（模型名写错之类）会在三次之后照样抛出来，不会掩盖问题。
+            soft_400 = e.code == 400 and "20015" in detail
+            if (e.code in (429, 500, 502, 503, 504) or soft_400) and i < attempts - 1:
                 last = e
                 time.sleep(1.5 * (i + 1))
                 continue
@@ -71,6 +75,10 @@ def embed(texts: list[str], batch: int = 16) -> np.ndarray | None:
     """调硅基流动 bge-m3，返回 (n, dim) float32。没 key 返回 None。"""
     if not available() or not texts:
         return None
+
+    # 空串和纯空白会让接口报 400（"The parameter is invalid"），用一个占位符顶上，
+    # 保持「返回条数与传入条数一致」——调用方是按行号对回数据库 id 的，少一条就全错位。
+    texts = [t.strip() if t and t.strip() else "（空）" for t in texts]
 
     vectors: list[list[float]] = []
     for i in range(0, len(texts), batch):
