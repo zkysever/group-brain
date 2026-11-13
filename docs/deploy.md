@@ -280,12 +280,16 @@ HOME=/root
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 20 3 * * * cd /opt/group-brain && set -a && . ./.env && set +a && .venv/bin/python scripts/sync_messages.py >> /var/log/gb-sync.log 2>&1
 25 3 * * * cd /opt/group-brain && set -a && . ./.env && set +a && .venv/bin/python scripts/extract_facts.py --new >> /var/log/gb-facts.log 2>&1
+27 3 * * * cd /opt/group-brain && set -a && . ./.env && set +a && .venv/bin/python scripts/review_facts.py --apply --reject-junk >> /var/log/gb-facts.log 2>&1
 30 3 * * * cd /opt/group-brain && .venv/bin/python scripts/backup_db.py >> /var/log/gb-backup.log 2>&1
 0 9 * * 1 bash /opt/group-brain/scripts/cron_coach.sh >> /var/log/gb-coach.log 2>&1
 0 4 1 * * cd /opt/group-brain && MEME_PACKS=/opt/group-brain/meme-packs .venv/bin/python scripts/restore_check.py >> /var/log/gb-restore.log 2>&1
 ```
 
 第二条是「每周一 09:00 自动生成上一周的周报」，见下面「定时任务」一节。
+第 25 分钟抽事实草稿、第 27 分钟自动分流（v0.16 加的）：机器只处理它确定的那批——
+「原话能查到 + 主语是真人 + 结论和原话对得上」的自动点头，机器人自述和查不到原话的
+自动拒绝，剩下拿不准的留给人看。顺序不能反：分流要跑在抽取之后。
 
 ## 为什么不是 `cp group_brain.db`
 
@@ -353,17 +357,18 @@ MEME_PACKS=/opt/group-brain/meme-packs .venv/bin/python scripts/restore_check.py
 
 # 定时任务（2026-11-10 加的）
 
-服务器上现在有五条 cron，都在 root 的 crontab 里：
+服务器上现在有六条 cron，都在 root 的 crontab 里：
 
 | 时间 | 干什么 | 日志 | 脚本 |
 |---|---|---|---|
 | 每天 03:20 | 从 AstrBot 活性库增量同步群消息，再补新消息的向量 | `/var/log/gb-sync.log` | `scripts/sync_messages.py` |
 | 每天 03:25 | 只抽「新消息」出事实草稿，写进 `facts` 表待审 | `/var/log/gb-facts.log` | `scripts/extract_facts.py --new` |
+| 每天 03:27 | 给待审事实自动分流：够分的点头、垃圾的拒绝、拿不准的留给人 | `/var/log/gb-facts.log` | `scripts/review_facts.py --apply --reject-junk` |
 | 每天 03:30 | 备份数据库，留 14 份 | `/var/log/gb-backup.log` | `scripts/backup_db.py` |
 | 每周一 09:00 | 生成上一周的周报，写进 `reports` 表 | `/var/log/gb-coach.log` | `scripts/cron_coach.sh` |
 | 每月 1 号 04:00 | 拿最新备份做一次恢复演练（只验证不修复） | `/var/log/gb-restore.log` | `scripts/restore_check.py` |
 
-顺序不是随手排的：**先同步（03:20）→ 再抽事实（03:25）→ 最后备份（03:30）**，这样每天早上那份备份里装的是当天最新的数据，事实草稿也是基于当天最新消息抽的。
+顺序不是随手排的：**先同步（03:20）→ 再抽事实（03:25）→ 分流（03:27）→ 最后备份（03:30）**，这样每天早上那份备份里装的是当天最新的数据，事实草稿也是基于当天最新消息抽的，而且分流完才备份——备份里的 `facts` 已经是分好档的。
 
 ## 事实抽取为什么是增量的（2026-11-13 改）
 
