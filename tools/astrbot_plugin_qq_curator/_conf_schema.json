@@ -1,0 +1,12 @@
+{
+  "umo": {
+    "type": "string",
+    "description": "推到哪个会话（unified_msg_origin）。默认是主人的 QQ 私聊。",
+    "default": "qqbot:FriendMessage:3750575880"
+  },
+  "enabled": {
+    "type": "bool",
+    "description": "是否开启轮询推送",
+    "default": true
+  }
+}

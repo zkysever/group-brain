@@ -52,6 +52,7 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | 语料接地扩展（把 900 个高频词表喂给模型挑词） | ⛔ v0.17.2 实测**失败**：难集 0.840→0.760/0.740/0.700，比前八种更糟（挑出来的有『肥鱼/鱼片』这种高频词，一进候选池就热门文档偏置） |
 | 联网检索：群外的问题（版本号/新闻/文档）自己上网查，回答带来源链接（`web_search` + `fetch_url`） | ✅ v0.18，`app/websearch.py`，8 条联网评测 8/8 |
 | 真浏览器兜底：403 / JS 壳页面转发到主人电脑上的真 Chromium 去读（`BROWSER_READER`，SSH 反向隧道 8010） | ✅ v0.18.1，隧道断了自动退回纯 HTTP |
+| B 站选片：先看简介+热评（免费）打分，值得才深读页面（每天≤3 次），08:00–22:59 每小时最多推 1 条到 QQ 私聊 | ✅ v0.19，`app/curator.py` + `tools/astrbot_plugin_qq_curator/`，见 `docs/curator.md` |
 
 ---
 
@@ -72,6 +73,7 @@ group-brain/
 │  ├─ learn.py           纠错记忆：用户教过的问法→答案，命中就原样答（不让模型改写）
 │  ├─ facts.py           事实记忆：人工点头过的「谁是什么样」，只索引 approved；`score()` 给待审打分供自动审阅
 │  ├─ websearch.py       联网检索：Bing 中文结果页（可选 Tavily）+ `web_cache` 缓存 + SSRF 防护的抓页（v0.18）
+│  ├─ curator.py         B 站选片：热门列表 → 热评打分 → 值得才深读 → 写 outbox 给 AstrBot 推 QQ（v0.19）
 │  ├─ expand.py          查询扩展（v0.16 实验，实测无效，默认关）
 │  ├─ ...（消息句意走到 scripts/gloss_messages.py，v0.17 实验，默认关）
 │  ├─ router.py          A3 落地：规则前置 + 自学规则（有把握就先跑工具，省一次往返）
@@ -101,6 +103,7 @@ group-brain/
 │  ├─ cron_coach.sh      每周一 09:00 自动生成周报的入口（要 source .env，cron 里没有 key）
 │  ├─ pull_backup.ps1    把服务器上最新备份拉到本机（备份不能和库放同一块盘）
 │  ├─ selftest.py        CI 用的自检：临时库跑一遍主链路，不碰你的数据
+│  ├─ curator_run.py     手动跑一轮 B 站选片（面板按钮 / cron 入口）
 │  └─ db_maintenance.py  WAL 合并 / VACUUM
 ├─ web/
 │  ├─ index.html         搜索页（原生三件套，无框架）
@@ -114,6 +117,7 @@ group-brain/
 │  ├─ agent.md           Agent 的设计与三个刻意限制
 │  ├─ routing.md         路由实验：20 行正则凭什么和大模型打平
 │  ├─ coach.md           周报为什么是「先算事实再让模型写」
+│  ├─ curator.md         B 站选片：为什么分两档、为什么推送靠写文件
 │  └─ cloudflare.md      域名与 NS
 ├─ data/
 │  ├─ raw/               ← AstrBot 数据库副本放这儿
@@ -296,5 +300,6 @@ python scripts/bench_fusion.py --grid "k=60 w=1,1.5,2"        # 扫融合旋钮
 - ~~**备份加校验**~~ —— 已做（v0.10）：`scripts/restore_check.py` 真恢复一次并真查一次，本机与服务器都验过；服务器每月 1 号 04:00 自动跑，日志 `/var/log/gb-restore.log`
 - ~~**联网检索**~~ —— 已做（v0.18）：`app/websearch.py` + 工具 `web_search` / `fetch_url`，群外的问题自己上网查并给链接，8 条联网评测 8/8（`EVAL.md` 第十四节）。**这是「难集推不动」的正解**：缺的不是算法，是它没有眼睛
 - 配 `TAVILY_API_KEY` 可以让联网更稳（结构化结果、少踩 Bing 改版），不配也能用（走 Bing 中文结果页）
+- ~~**B 站选片**~~ —— 已做（v0.19）：`app/curator.py`（热门列表 → 热评打分 → 值得才深读 → 写 outbox）+ `tools/astrbot_plugin_qq_curator/`（轮询 outbox 推 QQ 私聊）。08:00–22:59 每小时最多 1 条、每天最多深读 3 次，见 `docs/curator.md`。**待观察**：热门列表阶段性地被同一件事占满时，它这一天只会推那一条
 
 写代码之前先写 README——这条规矩是你自己定的。

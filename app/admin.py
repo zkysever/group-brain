@@ -44,6 +44,15 @@ TASKS: dict[str, dict] = {
                 "抽完去 /facts 一条条点头——不点头的草稿检索不到，也不会影响任何回答。",
         "timeout": 900,
     },
+    "curator": {
+        "label": "跑一轮 B 站选片（会调接口）",
+        "script": "curator_run.py",
+        "args": [],
+        "cost": "约 20–40 秒：热门列表 + 最多 8 条打分，够分才深读一次",
+        "note": "看得上眼的才推 QQ（每小时最多 1 条，每天最多深读 3 次）。"
+                "想一次多试几条就带 --force；只想看判断不推送带 --dry。",
+        "timeout": 600,
+    },
     "fts": {
         "label": "重建关键词索引",
         "script": "rebuild_fts.py",
@@ -182,6 +191,25 @@ def _web_stats(conn) -> dict:
     return {"cached": int(n or 0), "tavily": 1 if os.environ.get("TAVILY_API_KEY") else 0, "reader": reader}
 
 
+def _curator_stats(conn) -> dict:
+    """B 站选片：今天推了几条、还剩几次深读、outbox 里有没有待发的。"""
+    from datetime import datetime
+
+    try:
+        from . import curator as cur
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        pushed = conn.execute(
+            "SELECT count(*) c FROM curator_items WHERE pushed_at IS NOT NULL AND substr(pushed_at,1,10)=?",
+            (today,),
+        ).fetchone()["c"]
+        deep = cur.deep_used_today(conn)
+        return {"today": int(pushed or 0), "deep_left": max(0, cur.DEEP_PER_DAY - deep),
+                "deep_per_day": cur.DEEP_PER_DAY, "pending": len(cur.pending(limit=50))}
+    except Exception:                            # noqa: BLE001
+        return {"today": 0, "deep_left": 0, "deep_per_day": 0, "pending": 0}
+
+
 def state(conn) -> dict:
     """面板上要显示的全部东西，一次拿全，别让前端发一堆请求。"""
     n_msg = conn.execute("SELECT count(*) c FROM messages").fetchone()["c"]
@@ -227,6 +255,7 @@ def state(conn) -> dict:
             "memory": _memory_stats(conn),
             "facts": _facts_stats(conn),
             "web": _web_stats(conn),
+            "curator": _curator_stats(conn),
         },
         "files": {
             "db": fsize(DB_PATH),

@@ -41,6 +41,9 @@ MEMORY = re.compile(
 )
 # 指代词：规则天生处理不了「刚才那句」「上一条」，这类必须降级给模型。
 DEIXIS = re.compile(r"(刚才那|上一条|那句话|那句|这张|那张|那个人|他|她)")
+# 问题里自带链接：用户贴了链接还问「这里面讲什么 / 有多少播放」，正确的第一步是抓页面，
+# 而不是凭印象或凭记忆答。交给模型时它经常懒得抓（实测 rounds=0 直接编），所以前置。
+URL_RE = re.compile(r"https?://[^\s'\"）)，。]+", re.I)
 
 
 def learned_rules(conn) -> list[tuple[str, list[str]]]:
@@ -85,6 +88,12 @@ def rule_route(
     if GREET.match(s):
         return [], "high", "寒暄短句"
 
+    # 自带链接：先抓页面。这条要放在最前面（除寒暄），因为「这链接里有多少播放量」
+    # 里既有 MEMORY 的味道又要上网，让下面那套关键词先判会判错。
+    url = URL_RE.search(s)
+    if url:
+        return ["fetch_url"], "high", "问题里带了链接"
+
     if rules and not DEIXIS.search(s):
         flat = _flat(s)
         for pattern, tools in rules:
@@ -128,6 +137,7 @@ def plan(
         return []
 
     query = (q or "").strip()
+    url = URL_RE.search(query)
     out: list[dict[str, Any]] = []
     for name in tools:
         if name == "search_memory":
@@ -136,4 +146,6 @@ def plan(
             out.append({"name": name, "args": {"query": query, "limit": 3}, "why": why})
         elif name == "get_time":
             out.append({"name": name, "args": {}, "why": why})
+        elif name == "fetch_url" and url:
+            out.append({"name": name, "args": {"url": url.group(0)}, "why": why})
     return out

@@ -262,6 +262,44 @@ def main() -> None:
     finally:
         conn.close()
 
+    # ---- B 站选片（v0.19）：不联网也能验的四件事
+    from app import curator as cur  # noqa: E402
+    from datetime import datetime as _dt
+
+    conn = db.connect()
+    try:
+        cur.ensure_schema(conn)
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        check("选片：两张表建出来了", {"curator_items", "curator_state"} <= tables, str(sorted(tables))[:80])
+        check("选片：窗口内 10 点算在窗口", cur.in_window(_dt(2026, 11, 16, 10, 0)) is True)
+        check("选片：窗口外 3 点不算", cur.in_window(_dt(2026, 11, 16, 3, 0)) is False)
+        check("选片：今天还没深读过", cur.deep_used_today(conn) == 0, str(cur.deep_used_today(conn)))
+
+        # queue_push 会写文件，导到临时目录里验，别往真的 outbox 里塞
+        old_out = cur.OUTBOX
+        tmp = tempfile.mkdtemp(prefix="gb_curator_")
+        cur.OUTBOX = tmp
+        conn.execute(
+            "INSERT OR REPLACE INTO curator_items (bvid,title,url,owner,tname,duration,view,reply,"
+            "danmaku,like_cnt,comments,score,reason,seen_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("BVTEST", "测试标题", "https://www.bilibili.com/video/BVTEST", "UP", "科技", 300,
+             1000, 10, 5, 20, "[]", 4, "还行", _dt.now().isoformat(timespec="seconds")),
+        )
+        conn.commit()
+        path = cur.queue_push(conn, {"bvid": "BVTEST", "title": "测试标题", "owner": "UP",
+                                     "tname": "科技", "duration": 300, "score": 4,
+                                     "reason": "还行", "hook": "一句话", "comments": []})
+        import json as _json
+        payload = _json.loads(open(path, encoding="utf-8").read())
+        check("选片：推送文件落地且带链接", os.path.exists(path) and "bilibili.com/video/BVTEST" in payload["text"],
+              payload.get("text", "")[:40])
+        check("选片：推完记下 pushed_at",
+              bool(conn.execute("SELECT pushed_at FROM curator_items WHERE bvid='BVTEST'").fetchone()["pushed_at"]))
+        cur.OUTBOX = old_out
+    finally:
+        conn.close()
+
     print()
     if FAILS:
         print(f"[X] {len(FAILS)} 项没过：" + "、".join(FAILS))

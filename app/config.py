@@ -117,4 +117,20 @@ GLOSS_W = float(os.environ.get("GLOSS_W", "1.0"))      # 句意那一路的 RRF 
 # 电脑关着 / 隧道没开时探活 2 秒失败，行为与没有这个功能完全一致。
 BROWSER_READER = os.environ.get("BROWSER_READER_URL", "http://127.0.0.1:8010").strip()
 
+# ---- B 站选片（v0.19）---
+# 「先看简介和评论（免费接口），值得再深读页面（要过主人电脑上的浏览器，贵），
+#   最后写成 json 文件交给 AstrBot 推 QQ」。
+# outbox 必须是 AstrBot 容器的 /AstrBot/data 下面，因为那是宿主与容器共享的目录：
+#   /opt/qqbot/astrbot-data/curator/outbox  ==  /AstrBot/data/curator/outbox
+# 本机调试时退回 data/curator/outbox，免得真去写一个不存在的路径。
+CURATOR_OUTBOX = os.environ.get(
+    "CURATOR_OUTBOX",
+    "/opt/qqbot/astrbot-data/curator/outbox" if os.name != "nt" else str(DATA_DIR / "curator" / "outbox"),
+)
+CURATOR_DEEP_PER_DAY = int(os.environ.get("CURATOR_DEEP_PER_DAY", "3"))
+CURATOR_PUSH_PER_HOUR = int(os.environ.get("CURATOR_PUSH_PER_HOUR", "1"))
+CURATOR_SCORE_PUSH = int(os.environ.get("CURATOR_SCORE_PUSH", "4"))
+CURATOR_WINDOW = (int(os.environ.get("CURATOR_WINDOW_START", "8")),
+                  int(os.environ.get("CURATOR_WINDOW_END", "23")))
+
 

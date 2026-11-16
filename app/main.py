@@ -19,11 +19,11 @@ import requests
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from . import admin, agent, auth, coach, db, facts, learn, memory, search
+from . import admin, agent, auth, coach, curator, db, facts, learn, memory, search
 from . import config as cfg
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.18.1")
+app = FastAPI(title="group-brain", version="0.19.0")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
 PUBLIC = {"/login", "/api/health", "/favicon.ico", "/portfolio"}
@@ -506,6 +506,18 @@ def api_admin_status():
 @app.post("/api/admin/run")
 def api_admin_run(task: str = Query(..., description="任务名，见 /api/admin/status 的 tasks")):
     return admin.start(task)
+
+
+@app.post("/api/curator/run")
+def api_curator_run(force: bool = Query(False), dry: bool = Query(False)):
+    """手动跑一轮选片。cron 也会直接跑 `python -m app.curator`。"""
+    return curator.run(conn(), force=force, dry=dry)
+
+
+@app.get("/api/curator/list")
+def api_curator_list(limit: int = Query(20, ge=1, le=100)):
+    return {"ok": True, "items": curator.history(conn(), limit=limit),
+            "pending": len(curator.pending(limit=50))}
 
 
 @app.get("/api/meme/{meme_id}")

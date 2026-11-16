@@ -1,0 +1,14 @@
+name: qq_curator
+display_name: B 站选片推送
+short_desc: 每 60 秒看一次 outbox 目录，把 group-brain 选出来的视频推到 QQ 私聊
+desc: >-
+  group-brain 选片跑完后会把一条推送写成 json 丢进 /AstrBot/data/curator/outbox，
+  这个插件负责把它发出去（发完移到 sent/，失败留在 failed/ 等人工看）。
+  两个程序之间没有共享的 HTTP 口子，靠的就是这个宿主与容器共享的目录。
+version: 1.0.0
+author: dsh
+astrbot_version: ">=4.0.0"
+tags:
+  - 推送
+  - B站
+  - 选片

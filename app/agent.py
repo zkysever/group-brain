@@ -57,7 +57,9 @@ SYSTEM = """你是「群聊记忆体」的助手，只能通过工具查下面�
    直接反问「你说的是哪句」，**不要瞎猜一个去搜**。
 7. 问的是群外的事（软件版本、新闻、官方文档、百科概念）时用 web_search 上网查；
    问的是群里的事（谁说过什么、某人喜好、群里的梗）**不要**上网，那些在群聊记录里。
-   用 web_search 回答时**必须带上来源链接**；搜索结果和群聊记录冲突时，以群聊记录为准。"""
+   用 web_search 回答时**必须带上来源链接**；搜索结果和群聊记录冲突时，以群聊记录为准。
+8. 用户自己贴了链接、又问的是**页面上才有的事实**（标题、数字、播放量、时间、版本号）时，
+   即使你记得上次抓过，也要先用 fetch_url 抓一次再答；抓完确实没有这些数字，就说没有。"""
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -142,14 +144,14 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "fetch_url",
             "description": (
-                "抓一个网页的正文（前 1200 字）。只在 web_search 的结果里已经有明确该点的链接、"
-                "而摘要又不够回答时用它，**一次对话最多抓 2 个页面**。"
-                "不要用它抓群聊记录（那些用 search_memory），也不要拿它当爬虫。"
+                "抓一个网页的正文（前 1200 字）。两种时候用：①web_search 给了明确该点的链接、"
+                "而摘要不够回答；②**用户自己贴了链接**，问的是页面上才有的事实（标题、数字、时间）。"
+                "**一次对话最多抓 2 个页面**。不要用它抓群聊记录（那些用 search_memory），也不要拿它当爬虫。"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "url": {"type": "string", "description": "web_search 返回的链接，必须是 http/https"},
+                    "url": {"type": "string", "description": "要抓的链接，必须是 http/https；用户贴的和 web_search 给的都行"},
                 },
                 "required": ["url"],
             },
@@ -280,7 +282,8 @@ def _run_tool(name: str, args: dict[str, Any], conn) -> tuple[str, dict[str, Any
             payload = {"url": u, "error": f"抓不到: {type(exc).__name__}: {exc}",
                        "note": "这个链接抓不下来。换一个结果，或者直接告诉用户看链接。"}
             n = 0
-        note = {"tool": name, "args": {"url": u[:80]}, "n": n, "mode": "web"}
+        note = {"tool": name, "args": {"url": u[:80]}, "n": n, "mode": "web",
+                "via": page.get("via") if n else None}
     elif name == "search_facts":
         q = str(args.get("query") or "").strip()
         limit = min(int(args.get("limit") or MAX_HITS), 10)

@@ -99,6 +99,8 @@ function renderTop(s) {
       <div class="card"><div class="k">Agent 记忆</div><div class="v">${(c.memory && c.memory.turns) || 0}<small> 轮 / ${(c.memory && c.memory.sessions) || 0} 个会话</small></div></div>
       <div class="card"><div class="k">真浏览器兜底</div><div class="v" style="color:${c.web && c.web.reader ? 'var(--ok)' : 'var(--muted)'}">
         ${c.web && c.web.reader ? '通' : '断'}<small> ${(c.web && c.web.cached) || 0} 条搜索缓存</small></div></div>
+      <div class="card"><div class="k">B 站选片</div><div class="v">${(c.curator && c.curator.today) || 0}
+        <small> 今天推的 / 深读还剩 ${(c.curator && c.curator.deep_left) || 0} 次</small></div></div>
     </div>`;
 }
 
