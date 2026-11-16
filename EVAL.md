@@ -907,6 +907,27 @@ W=0.35 时「回到基线」——也就是**扩展这一路被压到不影响�
 - AstrBot 插件 60 秒内取走：`[curator] 已推送 BV15es76gEgL 到 qqbot:FriendMessage:3750575880`，文件进 `sent/`
 - 限额：每小时 1 条（`pushed_within_hour`）、每天 3 次深读（`deep_used_today`）、窗口 08:00–22:59（cron + `in_window` 两层挡）
 
+### 14.9 服务器自己开网页（v0.19.1，2026-11-16）
+
+真浏览器兜底（14.8）的问题在架构上：浏览器在主人的 Windows 上，他一关窗口、一关机就没。他的要求是「服务器自己能开网页，不受我操作影响；推视频不能因为我电脑没开机被限制」。这轮把两件事拆开解决。
+
+**一、选片彻底不需要浏览器**：深读从「整页渲染」改成 B 站官方 JSON 接口（`/x/web-interface/view` + `/x/v2/reply`）。实测 **0.3 秒 / 261 字**（标题、UP、时长、五项互动数、简介、三条热评）。坑：不带 cookie 的详情请求返回 `HTTP 412 Precondition Failed`，塞一个格式合法的 `buvid3/buvid4` 即可（服务端不验签）。
+
+**二、一般网页由服务器自己渲染**：新增 `app/headless.py`（Playwright + chromium-headless-shell，126MB，单并发、只放行 html/css、25 秒超时）。`websearch.fetch()` 变成三档：
+
+```
+纯 HTTP → 服务器无头 Chrome → 主人电脑上的真浏览器（可选）
+```
+
+| 页面 | 结果 |
+|---|---|
+| 掘金博文（JS 壳） | `via=headless` 400 字 / 5.5s |
+| 百度、example.com | `via=http` 0.1s |
+| 知乎问题页 | `via=headless` 117 字（未登录登录墙）→ 要正文仍需登录态 |
+| python.org、HN | 服务器 chromium 连不上（curl 正常），退纯 HTTP |
+
+**结论**：定时任务（选片/推送）与他电脑是否开机**完全解耦**；真浏览器降级成「需要登录态时的可选增强」。同时也保留了诚实边界——登录墙页面在服务器上依旧读不到，不假装能读。
+
 ## 十五、变更记录
 
 | 日期 | 版本 | 改了什么 | 结果 |
@@ -934,3 +955,4 @@ W=0.35 时「回到基线」——也就是**扩展这一路被压到不影响�
 | 2026-11-16 | v0.18 | **联网检索**：`app/websearch.py`（Bing 中文结果页 + 可选 Tavily + `web_cache` 表）+ 新工具 `web_search` / `fetch_url`（SSRF 防护、只抓一个页面 1200 字）；`judge()` 加 `subset` 字段 | 8 条联网评测 **8/8**、误触发 0/1、平均 3481ms；主集 46/50 但四条失败全与 `web_search` 无关（两条重跑即过、两条老问题）→ 未带坏原有行为（14.4） |
 | 2026-11-16 | v0.18.1 | **真浏览器兜底**：`cfg.BROWSER_READER` + `websearch.browser_read()`，服务器抓不到（403 / 空正文 / JS 壳）时经 SSH 反向隧道转发到主人电脑上的真 Chromium（`Desktop\bsk-reader\`）；`/admin` 加「真浏览器兜底 通/断」卡片 | 四页对照：知乎 403→204 字、掘金 2397 字节→352 字、StackOverflow 403→1200 字、python.org 仍走纯 HTTP；隧道断了自动退回纯 HTTP（14.8） |
 | 2026-11-16 | v0.19 | **B 站选片**：`app/curator.py`（热门列表 → 热评 → 打分 → 值得才深读 → 写 outbox）+ `tools/astrbot_plugin_qq_curator/`（轮询 outbox 发 QQ 私聊）+ `POST /api/curator/run` + 面板任务与卡片；cron `0 8-22 * * *` | 免费信号区分度够（8 条里 1 条 4 分、7 条 2 分且理由成立）；深读两次失败（Agent Window 关闭 / 412）但不影响推送；端到端推送成功（14.5） |
+| 2026-11-16 | v0.19.1 | **服务器自己开网页**：`app/headless.py`（Playwright + chromium-headless-shell，单并发）；`websearch.fetch()` 三档（http → headless → 主人电脑上的真浏览器）；`curator.deep_read()` 改走 B 站官方接口（`view` + `reply`，带伪 buvid cookie 绕 412） | 深读 0.3s / 261 字、**完全不碰浏览器**；掘金 JS 壳 `via=headless` 400 字 5.5s；百度 0.1s；知乎未登录仍只有 117 字；定时任务与他电脑开关机彻底解耦（14.9） |

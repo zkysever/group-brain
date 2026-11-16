@@ -256,8 +256,12 @@ def _page_text(page: str) -> str:
 def fetch(url: str, max_chars: int = MAX_PAGE, timeout: float = 12.0) -> dict[str, str]:
     """抓一个页面的可读文本（前 max_chars 字）。
 
-    先走纯 HTTP；抓不到（403 / 空正文 / 只有 JS 壳）再问真浏览器兜底一次。
-    两条都不行才抛 WebError，由调用方兜成「抓不到」。
+    三条路，从便宜到贵：
+    1. 纯 HTTP（几十毫秒）
+    2. 服务器自己的无头浏览器（`app/headless.py`，1–5 秒，不依赖任何人的电脑）
+    3. 主人电脑上的真浏览器（`browser_read`，只有配置了隧道才走）
+
+    前一条能拿到够长的正文就立刻返回；三条都不行才抛 WebError。
     """
     target = _safe_target(url)
     try:
@@ -268,6 +272,16 @@ def fetch(url: str, max_chars: int = MAX_PAGE, timeout: float = 12.0) -> dict[st
         thin = data
     except Exception as exc:  # 403 / 超时 / 编码异常统统走兜底
         thin = {"title": "", "url": target, "text": "", "err": f"{type(exc).__name__}: {exc}"}
+
+    # 服务器自己渲染（默认路线，跟他开不开电脑无关）
+    try:
+        from . import headless
+
+        rendered = headless.fetch(target, max_chars=max_chars)
+        if rendered:
+            return rendered
+    except Exception as exc:  # noqa: BLE001
+        print(f"[warn] 无头浏览器异常: {type(exc).__name__}: {exc}", flush=True)
 
     browser = browser_read(target, max_chars=max_chars)
     if browser:

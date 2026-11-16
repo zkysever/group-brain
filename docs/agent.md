@@ -551,3 +551,60 @@ answer: 知乎那个页面需要登录才能看，抓到的只有登录页，看
 
 **这次它没有编**——抓到的就是登录墙，它如实说「被挡了」，而不是假装读过正文。这是这一节最想留下的行为证据。
 
+## 服务器自己开网页：把「开浏览器」这件事搬回服务器（v0.19.1，2026-11-16）
+
+上一节的真浏览器兜底有个根本问题：**浏览器在主人电脑上**。他一关机、一关窗口、一用别的东西把 bsk 的 Agent Window 顶掉，这条能力就没了（报错原文 `error: the session ended because the user closed the Agent Window`）。他的原话是「你需要能够自己打开网页，不会因为我的操作被影响，同时推视频功能不能因为我电脑未开机被限制」。
+
+所以这轮把开网页的能力分成两层，**服务器自己就能跑**：
+
+### 1. 选片完全不需要浏览器了
+
+深读从「整页渲染」改成「B 站官方 JSON 接口」：
+
+| 要什么 | 从哪拿 |
+|---|---|
+| 标题 / 简介 / 时长 / 分区 / UP / 播放点赞投币收藏弹幕评论数 | `GET https://api.bilibili.com/x/web-interface/view?bvid=…` |
+| 热评（按点赞排序） | `GET https://api.bilibili.com/x/v2/reply?type=1&oid=<aid>&sort=2&ps=8` |
+
+实测 **0.3 秒 / 261 字**，含标题、UP、时长、五项互动数据、简介、三条热评：
+
+```
+标题：【2026全球总决赛】11月15日 GEN vs BLG | UP：哔哩哔哩英雄联盟赛事｜时长：319:25
+播放：2281.4万｜点赞：33.0万｜投币：26.7万｜收藏：10.7万｜弹幕：29.1万｜评论：6.2万
+热评：[赞18209] 尺帝真稳呀… / [赞39465] 感觉blg这边中路还是玩法核稳…
+```
+
+一个坑：**不带 cookie 的请求会被回 `HTTP 412 Precondition Failed`**（热门列表接口不会，详情接口会）。解法是随便编一个格式合法的 `buvid3/buvid4` 塞进 `Cookie` 头，服务端不校验签名——`curator._uicookie()` 就干这个，进程内复用。
+
+### 2. 一般网页：服务器自己的无头 Chromium
+
+新增 `app/headless.py`：Playwright + `chromium-headless-shell`，装在服务器 `/opt/group-brain/.pw-browsers`（约 126MB），**同一时刻只开一个页面**（`threading.Lock`），只放行 html/css，图片/视频/字体一律 abort，单次 25 秒超时。
+
+`websearch.fetch()` 现在是三条路，从便宜到贵：
+
+```
+纯 HTTP（几十毫秒）→ 服务器无头 Chrome（1–6 秒）→ 主人电脑的真浏览器（可选，只在他开着时）
+```
+
+前一条拿到够长的正文就立刻返回；`via` 字段会写明这条走了哪条（`http` / `headless` / `browser`）。
+
+**实测（服务器上，2026-11-16）**：
+
+| 页面 | 结果 |
+|---|---|
+| 掘金博文（JS 壳） | `via=headless`、400 字、5.5 秒 |
+| 百度 / example.com | `via=http`、0.1 秒 |
+| 知乎问题页 | `via=headless` 只拿到 117 字（未登录的登录墙）→ 需要登录态时仍得靠主人那台机器 |
+| python.org / HN | 服务器上的 chromium **连不上**（curl 正常，chromium 侧 TLS 超时），这类站点落到纯 HTTP |
+
+### 3. 运维细节（都踩过）
+
+- 装完 browser 还要装系统库，否则报 `error while loading shared libraries: libatk-1.0.so.0`：`apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 libx11-xcb1`
+- 浏览器路径写死在 `headless.py` 里兜底（`/opt/group-brain/.pw-browsers`）：systemd 有 drop-in 传 `PLAYWRIGHT_BROWSERS_PATH`，但 cron、ssh 手测都没有，否则会报 `Executable doesn't exist at /root/.cache/ms-playwright/...`
+- 内存：1.7G 内存 + 4G swap，单页 250–400MB，所以并发必须 1；`--single-process --no-zygote --disable-dev-shm-usage` 是省内存的关键
+- 服务器上部分境外站点 chromium 连不上（见上表），这不是配置问题，是这台机器的出网策略，**不修**——那些站点纯 HTTP 通常够用
+
+### 结论
+
+「推视频」现在**完全不依赖主人的电脑**（官方接口 + 无头浏览器都在服务器上）。真浏览器那条降级成「需要登录态时的可选增强」：他开着就用，不开也不影响任何定时任务。
+

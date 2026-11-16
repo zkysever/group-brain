@@ -49,6 +49,7 @@ from . import db
 
 POPULAR = "https://api.bilibili.com/x/web-interface/popular"
 REPLY = "https://api.bilibili.com/x/v2/reply"
+VIEW = "https://api.bilibili.com/x/web-interface/view"
 VIDEO_URL = "https://www.bilibili.com/video/{bvid}"
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -107,10 +108,48 @@ def ensure_schema(conn) -> None:
 
 # ---------------------------------------------------------------- 取数
 
+_COOKIE: str | None = None
+
+
+def _uicookie() -> str:
+    """B 站接口对「没有任何 cookie 的请求」会直接 412，随便编一个 buvid 就够。
+
+    cookie 只要格式像，不会校验签名；同一个进程里复用，别每次换。
+    """
+    global _COOKIE
+    if _COOKIE is None:
+        import random
+
+        hexs = lambda n: "".join(random.choice("0123456789ABCDEF") for _ in range(n))  # noqa: E731
+        buvid = f"{hexs(8)}-{hexs(4)}-{hexs(4)}-{hexs(4)}-{hexs(12)}infoc"
+        _COOKIE = f"buvid3={buvid}; buvid4={buvid}"
+    return _COOKIE
+
+
 def _get_json(url: str, timeout: float = 15.0) -> Any:
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Referer": "https://www.bilibili.com/"})
+    req = urllib.request.Request(url, headers={
+        "User-Agent": UA,
+        "Referer": "https://www.bilibili.com/",
+        "Accept": "application/json, text/plain, */*",
+        "Cookie": _uicookie(),
+    })
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8", "replace"))
+
+
+def view(bvid: str) -> dict[str, Any]:
+    """单个视频的元信息（标题、简介、时长、分区、UP、统计）。失败返回 {}。"""
+    if not bvid:
+        return {}
+    try:
+        data = _get_json(f"{VIEW}?bvid={bvid}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[warn] 视频详情失败 {bvid}: {type(exc).__name__}: {exc}", flush=True)
+        return {}
+    if int((data or {}).get("code") or 0) != 0:
+        print(f"[warn] 视频详情返回 code={(data or {}).get('code')} {bvid}", flush=True)
+        return {}
+    return (data or {}).get("data") or {}
 
 
 def popular(limit: int = CANDIDATES) -> list[dict[str, Any]]:
@@ -269,16 +308,48 @@ def judge(item: dict[str, Any], cmts: list[str]) -> dict[str, Any]:
 # ---------------------------------------------------------------- 深读
 
 def deep_read(bvid: str) -> str:
-    """用真浏览器把页面读一遍（贵，每天限 3 次）。失败返回空串。"""
+    """深读一条视频：优先走 B 站自己的接口（不需要浏览器、不需要登录、不占他电脑）。
+
+    顺序：官方 view 接口拿标题/简介/时长/分区/UP/统计 → 热评接口 → 拼成一段文本。
+    接口全挂时才退到 websearch.fetch（那条路可能要借真浏览器）。
+    """
+    parts: list[str] = []
+    d = view(bvid)
+    if d:
+        st = d.get("stat") or {}
+        dur = int(d.get("duration") or 0)
+        parts.append(f"标题：{d.get('title') or ''}")
+        parts.append(
+            f"UP：{(d.get('owner') or {}).get('name') or ''}｜分区：{d.get('tname') or ''}｜"
+            f"时长：{dur // 60}:{dur % 60:02d}"
+        )
+        parts.append(
+            f"播放：{_fmt(int(st.get('view') or 0))}｜点赞：{_fmt(int(st.get('like') or 0))}｜"
+            f"投币：{_fmt(int(st.get('coin') or 0))}｜收藏：{_fmt(int(st.get('favorite') or 0))}｜"
+            f"弹幕：{_fmt(int(st.get('danmaku') or 0))}｜评论：{_fmt(int(st.get('reply') or 0))}"
+        )
+        descr = re.sub(r"\s+", " ", (d.get("desc") or "")).strip()
+        if descr:
+            parts.append(f"简介：{descr[:600]}")
+        cmts = comments(int(d.get("aid") or 0), limit=COMMENTS)
+        if cmts:
+            parts.append("热评：" + " / ".join(c.replace("\n", " ") for c in cmts))
+
+    text = "\n".join(parts)
+    if text:
+        return text[:PAGE_CHARS]
+
+    # 兜底：接口一条都拿不到时才去抓页面
+    print(f"[warn] 接口没拿到 {bvid}，退到抓页面", flush=True)
     from . import websearch
 
     try:
-        page = websearch.fetch(VIDEO_URL.format(bvid=bvid), max_chars=PAGE_CHARS, timeout=20.0)
+        page = websearch.fetch(VIDEO_URL.format(bvid=bvid), max_chars=PAGE_CHARS, timeout=25.0)
     except Exception as exc:  # noqa: BLE001
         print(f"[warn] 深读失败 {bvid}: {type(exc).__name__}: {exc}", flush=True)
         return ""
-    text = (page or {}).get("text") or ""
-    return re.sub(r"[ \t]+", " ", text)[:PAGE_CHARS]
+    got = (page or {}).get("text") or ""
+    return re.sub(r"[ \t]+", " ", got)[:PAGE_CHARS]
 
 
 # ---------------------------------------------------------------- 限额
