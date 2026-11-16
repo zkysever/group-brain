@@ -26,6 +26,14 @@
 只提供「搜索 + 只抓一个页面」：不提供批量抓正文。正文动不动几万字，塞进上下文既贵又容易带偏，
 所以 `fetch()` 只取页面开头 1200 字，够回答「版本号是多少」「这个参数怎么用」这类具体问题，
 剩下的交给用户在浏览器里点链接。
+
+真浏览器兜底（2026-11-16 加的）
+-----------------------------
+纯 HTTP 抓不到三类页面：403（知乎 / StackOverflow 的 CF 盾）、只有 JS 壳（掘金 200 但只
+2397 字节）、302 到登录页（小红书）。这条链路上有个「真浏览器阅读服务」跑在主人那台
+Windows 上（`Desktop\bsk-reader\bsk_reader.py`，驱动他自己登录态的 Chromium），再通过
+`ssh -N -R 8010:127.0.0.1:8010 gb` 反向隧道暴露给服务器，`fetch()` 抓不到时才转发过去。
+电脑关着 / 隧道没开时，`_reader_health()` 2 秒超时失败，行为与以前完全一样。
 """
 
 from __future__ import annotations
@@ -246,14 +254,91 @@ def _page_text(page: str) -> str:
 
 
 def fetch(url: str, max_chars: int = MAX_PAGE, timeout: float = 12.0) -> dict[str, str]:
-    """抓一个页面的可读文本（前 max_chars 字）。失败抛 WebError，由调用方兜成「抓不到」。"""
+    """抓一个页面的可读文本（前 max_chars 字）。
+
+    先走纯 HTTP；抓不到（403 / 空正文 / 只有 JS 壳）再问真浏览器兜底一次。
+    两条都不行才抛 WebError，由调用方兜成「抓不到」。
+    """
     target = _safe_target(url)
-    req = urllib.request.Request(target, headers={"User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9"})
+    try:
+        data = _plain_fetch(target, max_chars, timeout)
+        if len(data["text"]) >= MIN_PAGE_CHARS:
+            data["via"] = "http"
+            return data
+        thin = data
+    except Exception as exc:  # 403 / 超时 / 编码异常统统走兜底
+        thin = {"title": "", "url": target, "text": "", "err": f"{type(exc).__name__}: {exc}"}
+
+    browser = browser_read(target, max_chars=max_chars)
+    if browser:
+        return browser
+    if thin.get("text"):
+        thin["via"] = "http"
+        return thin
+    raise WebError(thin.get("err") or "抓不到页面正文")
+
+
+def _plain_fetch(url: str, max_chars: int, timeout: float) -> dict[str, str]:
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read(400_000)
         charset = resp.headers.get_content_charset() or "utf-8"
     page = raw.decode(charset, "replace")
-    title = _strip(re.search(r"(?is)<title[^>]*>(.*?)</title>", page).group(1)) if re.search(
-        r"(?is)<title[^>]*>(.*?)</title>", page
-    ) else ""
-    return {"title": title[:120], "url": target, "text": _page_text(page)[:max_chars]}
+    found = re.search(r"(?is)<title[^>]*>(.*?)</title>", page)
+    title = _strip(found.group(1)) if found else ""
+    return {"title": title[:120], "url": url, "text": _page_text(page)[:max_chars]}
+
+
+# ------------------------------------------------------- 真浏览器兜底（本机阅读服务）
+MIN_PAGE_CHARS = 200
+READER_TIMEOUT = 25.0
+_reader_state = {"at": 0.0, "ok": False}
+_READER_TTL = 30.0
+
+
+def browser_reader() -> str:
+    try:
+        from . import config as cfg
+
+        return getattr(cfg, "BROWSER_READER", "") or ""
+    except Exception:
+        return os.environ.get("BROWSER_READER_URL", "").strip()
+
+
+def _reader_health() -> bool:
+    """2 秒内探一下隧道通不通，结果缓存 30 秒——隧道不在时不要每次都白等。"""
+    base = browser_reader()
+    if not base:
+        return False
+    now = time.time()
+    if now - _reader_state["at"] < _READER_TTL:
+        return bool(_reader_state["ok"])
+    ok = False
+    try:
+        with urllib.request.urlopen(base.rstrip("/") + "/health", timeout=2.0) as resp:
+            ok = json.loads(resp.read().decode("utf-8", "replace")).get("ok") is True
+    except Exception:
+        ok = False
+    _reader_state.update({"at": now, "ok": ok})
+    return ok
+
+
+def browser_read(url: str, max_chars: int = MAX_PAGE) -> dict[str, str] | None:
+    """用真浏览器读页面。隧道不在 / 读不到都返回 None，绝不抛异常。"""
+    base = browser_reader()
+    if not base or not _reader_health():
+        return None
+    api = base.rstrip("/") + "/read?url=" + urllib.parse.quote(url, safe="")
+    try:
+        with urllib.request.urlopen(api, timeout=READER_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as exc:
+        print(f"[warn] 真浏览器兜底失败: {type(exc).__name__}: {exc}")
+        return None
+    if not data.get("ok"):
+        print(f"[warn] 真浏览器没读到: {str(data.get('error'))[:120]}")
+        return None
+    text = (data.get("text") or "")[:max_chars]
+    if len(text) < MIN_PAGE_CHARS:
+        return None
+    return {"title": "", "url": url, "text": text, "via": "browser"}

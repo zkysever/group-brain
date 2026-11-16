@@ -110,3 +110,11 @@ MQ_PROMPT = os.environ.get("MQ_PROMPT", "generic")
 GLOSS_ROUTE = os.environ.get("GLOSS_ROUTE", "0") == "1"
 GLOSS_W = float(os.environ.get("GLOSS_W", "1.0"))      # 句意那一路的 RRF 权重
 
+# ---- 真浏览器兜底（v0.18.1）----
+# 服务器抓不到 403 / JS 壳页面时，把 URL 转发给「本机浏览器阅读服务」。
+# 那个服务跑在主人这台 Windows 上（Desktop\bsk-reader\bsk_reader.py），
+# 通过 `ssh -N -R 8010:127.0.0.1:8010 gb` 出现在服务器的 127.0.0.1:8010。
+# 电脑关着 / 隧道没开时探活 2 秒失败，行为与没有这个功能完全一致。
+BROWSER_READER = os.environ.get("BROWSER_READER_URL", "http://127.0.0.1:8010").strip()
+
+

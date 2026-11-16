@@ -97,6 +97,8 @@ function renderTop(s) {
         ${c.fts_ok ? '一致' : '不一致'}<small> ${c.messages_fts} 行</small></div></div>
       <div class="card"><div class="k">数据库文件</div><div class="v" style="font-size:16px">${f.db}<small> + wal ${f.wal}</small></div></div>
       <div class="card"><div class="k">Agent 记忆</div><div class="v">${(c.memory && c.memory.turns) || 0}<small> 轮 / ${(c.memory && c.memory.sessions) || 0} 个会话</small></div></div>
+      <div class="card"><div class="k">真浏览器兜底</div><div class="v" style="color:${c.web && c.web.reader ? 'var(--ok)' : 'var(--muted)'}">
+        ${c.web && c.web.reader ? '通' : '断'}<small> ${(c.web && c.web.cached) || 0} 条搜索缓存</small></div></div>
     </div>`;
 }
 

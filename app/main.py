@@ -23,7 +23,7 @@ from . import admin, agent, auth, coach, db, facts, learn, memory, search
 from . import config as cfg
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.18.0")
+app = FastAPI(title="group-brain", version="0.18.1")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
 PUBLIC = {"/login", "/api/health", "/favicon.ico", "/portfolio"}

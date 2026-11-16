@@ -168,12 +168,18 @@ def _facts_stats(conn) -> dict:
 
 
 def _web_stats(conn) -> dict:
-    """联网检索缓存：多少条缓存、有没有配 Tavily key。库老没有表就返回 0。"""
+    """联网检索缓存：多少条缓存、有没有配 Tavily key、真浏览器隧道通不通。"""
+    try:
+        from . import websearch
+
+        reader = 1 if websearch._reader_health() else 0
+    except Exception:                            # noqa: BLE001
+        reader = 0
     try:
         n = conn.execute("SELECT count(*) c FROM web_cache").fetchone()["c"]
     except Exception:                            # noqa: BLE001
-        return {"cached": 0, "tavily": 0}
-    return {"cached": int(n or 0), "tavily": 1 if os.environ.get("TAVILY_API_KEY") else 0}
+        return {"cached": 0, "tavily": 0, "reader": reader}
+    return {"cached": int(n or 0), "tavily": 1 if os.environ.get("TAVILY_API_KEY") else 0, "reader": reader}
 
 
 def state(conn) -> dict:

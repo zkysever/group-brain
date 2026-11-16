@@ -273,6 +273,8 @@ def _run_tool(name: str, args: dict[str, Any], conn) -> tuple[str, dict[str, Any
                 "title": page["title"],
                 "text": page["text"],
             }
+            if page.get("via") == "browser":
+                payload["via"] = "真浏览器渲染"
             n = 1
         except Exception as exc:  # noqa: BLE001 —— 抓不到就当没这回事
             payload = {"url": u, "error": f"抓不到: {type(exc).__name__}: {exc}",
