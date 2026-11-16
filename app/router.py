@@ -130,9 +130,11 @@ def plan(
     rules: list[tuple[str, list[str]]] | None = None,
 ) -> list[dict[str, Any]]:
     """该前置哪些工具调用。返回空列表表示「别前置，交给模型」。"""
-    if has_history:
-        return []
     tools, conf, why = rule_route(q, rules=rules)
+    # 带上下文时一律不前置——唯一例外是「用户自己贴了链接」：
+    # 那不是指代、也不需要解上文，而模型拿到记忆后最容易做的事就是复述旧答案（实测 rounds=0 编标题）。
+    if has_history and why != "问题里带了链接":
+        return []
     if conf != "high" or not tools:
         return []
 
