@@ -1,0 +1,8 @@
+{"q": "Python 3.12 是什么时候发布的", "tools": ["web_search"], "subset": true, "max_calls": 4, "expect_any": ["2023"], "note": "群外知识。subset=true：允许它先翻群失败再上网，或多搜一次。expect_any 用发布年份 2023 做锚点。"}
+{"q": "FastAPI 现在最新版本是多少", "tools": ["web_search"], "subset": true, "max_calls": 4, "note": "只判工具选择。版本号会变，写死数字等于给自己埋雷。"}
+{"q": "Docker Engine 现在最新稳定版是几", "tools": ["web_search"], "subset": true, "max_calls": 4, "note": "同上。"}
+{"q": "谁说过要吃鱼片", "tools": ["search_memory"], "max_calls": 1, "note": "群内问题，**不许上网**。这条是「别把 web_search 当万能锤」的对照。"}
+{"q": "群里有人提过 FastAPI 吗", "tools": ["search_memory"], "max_calls": 2, "note": "问的是「群里有没有」，不是「FastAPI 是什么」，所以不该上网。"}
+{"q": "有没有烧糊的表情", "tools": ["search_meme"], "max_calls": 2, "note": "要图 → 翻图库，不该上网。"}
+{"q": "今天几号", "tools": ["get_time"], "max_calls": 1, "note": "不需要检索，也不需要上网。"}
+{"q": "你好呀", "tools": [], "max_calls": 0, "note": "寒暄：一个工具都不该调。"}

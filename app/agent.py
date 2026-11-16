@@ -3,10 +3,12 @@
 前面 v0.5 是「用户打字 → 关键词+向量召回 → 排序」的固定流水线；
 这里换一种控制方式：把检索包成**工具**，交给 DeepSeek 自己判断什么时候调、调什么。
 
-三个工具是刻意选的，覆盖三种典型情况：
+工具是刻意选的，覆盖几种典型情况：
   search_memory  用户问「谁说过…」「上次那个…」      → 需要翻群聊
+  search_facts   用户问「某人喜欢什么」「群里规矩」  → 需要查人工确认过的事实
   search_meme    用户说「来个表情」「有生气的图吗」  → 需要翻图库
   get_time       用户问「今天几号」                  → 根本不需要检索
+  web_search     用户问群外的事（版本号、新闻、文档）→ 需要上网（v0.18 加）
 
 真正要观察的不是回答好不好看，而是**它会犯错**：
   过度调用（明明只要说句话，非要去翻一遍库）、
@@ -29,6 +31,7 @@ from . import facts
 from . import learn
 from . import router
 from . import search
+from . import websearch
 
 # 规则前置开关：AGENT_PREFETCH=0 可以关掉，用来做 A/B 对比。
 # 关掉之后行为和 v0.9 完全一致——这种开关要留着，不然改了东西没法证明改好了。
@@ -51,7 +54,10 @@ SYSTEM = """你是「群聊记忆体」的助手，只能通过工具查下面�
 5. 只是打个招呼、问个好，不需要调用任何工具。
 6. 如果上面有「刚才的对话」，那么用户说的「刚才那句」「上一条」「他」指的就是它——
    能从上文直接回答的就直接回答，不必再查；上文里真的找不到对应物时，
-   直接反问「你说的是哪句」，**不要瞎猜一个去搜**。"""
+   直接反问「你说的是哪句」，**不要瞎猜一个去搜**。
+7. 问的是群外的事（软件版本、新闻、官方文档、百科概念）时用 web_search 上网查；
+   问的是群里的事（谁说过什么、某人喜好、群里的梗）**不要**上网，那些在群聊记录里。
+   用 web_search 回答时**必须带上来源链接**；搜索结果和群聊记录冲突时，以群聊记录为准。"""
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -108,6 +114,44 @@ TOOLS: list[dict[str, Any]] = [
                     "limit": {"type": "integer", "description": "返回几条，默认 5，最大 10"},
                 },
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "上网搜公开资料，返回标题、链接和摘要。**只用于群外的知识**："
+                "软件/库的版本号、发布时间、官方文档、新闻、百科概念、报错信息。"
+                "问群里谁说过什么、某人的喜好、群里的梗时**不要**用它——那些用 search_memory / search_facts。"
+                "它的摘要很短，只够判断「是不是这个」；需要细节时在回答里给出链接让用户自己点。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "搜索词，用关键词，别写整句寒暄"},
+                    "limit": {"type": "integer", "description": "返回几条，默认 4，最大 8"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_url",
+            "description": (
+                "抓一个网页的正文（前 1200 字）。只在 web_search 的结果里已经有明确该点的链接、"
+                "而摘要又不够回答时用它，**一次对话最多抓 2 个页面**。"
+                "不要用它抓群聊记录（那些用 search_memory），也不要拿它当爬虫。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "web_search 返回的链接，必须是 http/https"},
+                },
+                "required": ["url"],
             },
         },
     },
@@ -199,6 +243,42 @@ def _run_tool(name: str, args: dict[str, Any], conn) -> tuple[str, dict[str, Any
         now = datetime.now().astimezone()
         payload = {"now": now.strftime("%Y-%m-%d %H:%M:%S"), "weekday": "一二三四五六日"[now.weekday()], "tz": str(now.tzinfo)}
         note = {"tool": name, "args": {}, "n": 1, "mode": "-"}
+    elif name == "web_search":
+        q = str(args.get("query") or "").strip()
+        limit = min(int(args.get("limit") or 4), 8)
+        rows = websearch.search(conn, q, limit)
+        hits = [
+            {
+                "type": "web",
+                "title": r["title"],
+                "url": r["url"],
+                "text": r["snippet"],
+                "who": r["source"],
+                "ts": "",
+            }
+            for r in rows
+        ]
+        payload = {"query": q, "count": len(hits), "hits": hits}
+        if not hits:
+            # 和 facts 的 0 结果同一个道理：明确告诉模型「这条路断了」，
+            # 否则它会换个词反复搜，一次对话能把 token 烧掉一半。
+            payload["note"] = "联网没搜到结果。不要再调 web_search，直接说「网上没查到」，或在群里找原话。"
+        note = {"tool": name, "args": {"query": q, "limit": limit}, "n": len(hits), "mode": "web"}
+    elif name == "fetch_url":
+        u = str(args.get("url") or "").strip()
+        try:
+            page = websearch.fetch(u)
+            payload = {
+                "url": page["url"],
+                "title": page["title"],
+                "text": page["text"],
+            }
+            n = 1
+        except Exception as exc:  # noqa: BLE001 —— 抓不到就当没这回事
+            payload = {"url": u, "error": f"抓不到: {type(exc).__name__}: {exc}",
+                       "note": "这个链接抓不下来。换一个结果，或者直接告诉用户看链接。"}
+            n = 0
+        note = {"tool": name, "args": {"url": u[:80]}, "n": n, "mode": "web"}
     elif name == "search_facts":
         q = str(args.get("query") or "").strip()
         limit = min(int(args.get("limit") or MAX_HITS), 10)

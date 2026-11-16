@@ -58,6 +58,10 @@ def judge(case: dict, result: dict) -> tuple[bool, str]:
     want = list(case.get("tools") or [])
     got = [t for t in (result.get("tool_calls") or []) if t != "STOP"]
     max_calls = int(case.get("max_calls", len(want)))
+    # subset=True：只要求「期望的工具都在」，允许多调别的。
+    # 联网题需要它——正确解可能是「先查群再上网」，也可能直接上网，
+    # 强行要求集合完全相等等于在考我的判分器，不是在考模型。
+    subset = bool(case.get("subset"))
 
     if not result.get("ok"):
         return False, "调用失败: " + str(result.get("error"))[:80]
@@ -66,9 +70,14 @@ def judge(case: dict, result: dict) -> tuple[bool, str]:
         return False, "该调没调"
     if not want and got:
         return False, "不该调却调了 " + "/".join(got)
-    extra = [t for t in got if t not in want]
-    if want and extra:
-        return False, "多调了 " + "/".join(extra)
+    if subset:
+        missing = [t for t in want if t not in got]
+        if missing:
+            return False, "该调没调 " + "/".join(missing)
+    else:
+        extra = [t for t in got if t not in want]
+        if want and extra:
+            return False, "多调了 " + "/".join(extra)
     if len(got) > max_calls:
         return False, f"调了 {len(got)} 次，超过上限 {max_calls}"
 

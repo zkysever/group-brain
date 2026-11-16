@@ -239,12 +239,34 @@ def main() -> None:
     finally:
         conn.close()
 
+    # ---- 联网检索（v0.18）：不联网也能验的三件事
+    from app import websearch as ws  # noqa: E402  局部导入，避免影响上面的时序
+
+    check("联网：去掉标签与实体", ws._strip("<b>Python</b> &amp; FastAPI") == "Python & FastAPI")
+    try:
+        ws._safe_target("http://127.0.0.1/")
+        check("联网：拦住内网地址", False, "127.0.0.1 竟然被放行了")
+    except ws.WebError as exc:
+        check("联网：拦住内网地址", True, str(exc)[:40])
+    try:
+        ws._safe_target("file:///etc/passwd")
+        check("联网：拦住非 http 协议", False, "file:// 竟然被放行了")
+    except ws.WebError:
+        check("联网：拦住非 http 协议", True)
+    conn = db.connect()
+    try:
+        ws._cache_put(conn, "python 3.12", [{"title": "t", "url": "u", "snippet": "s", "source": "test"}])
+        got = ws._cache_get(conn, "python 3.12")
+        check("联网：缓存能写能读", bool(got) and got[0]["url"] == "u")
+        check("联网：缓存 stats 有数", ws.stats(conn)["cached"] >= 1, str(ws.stats(conn)))
+    finally:
+        conn.close()
+
     print()
     if FAILS:
         print(f"[X] {len(FAILS)} 项没过：" + "、".join(FAILS))
         raise SystemExit(1)
     print("[OK] 自检全过（用到的是临时库，没碰你的数据）")
-
 
 if __name__ == "__main__":
     main()

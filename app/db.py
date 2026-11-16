@@ -132,6 +132,16 @@ CREATE TABLE IF NOT EXISTS query_expansions (
     ts   TEXT NOT NULL
 );
 
+-- 联网检索缓存（v0.18）：同一个问题一小时内不再打网络。
+-- 为什么要缓存：一是省时间（Bing 一次 0.3~1 秒），二是评测要可复现——
+-- 同一道题跑两遍，第二遍必须拿到同一批搜索结果，否则数字没法比。
+CREATE TABLE IF NOT EXISTS web_cache (
+    qkey TEXT PRIMARY KEY,     -- 归一化后的问题
+    q    TEXT NOT NULL,        -- 原始问题（给人看）
+    hits TEXT NOT NULL,        -- JSON 数组 [{title,url,snippet,source}]
+    ts   REAL NOT NULL         -- unix 秒，用于 TTL
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_name);
 CREATE INDEX IF NOT EXISTS idx_memes_tag ON memes(tag);

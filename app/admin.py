@@ -167,6 +167,15 @@ def _facts_stats(conn) -> dict:
         return {"pending": 0, "approved": 0, "rejected": 0}
 
 
+def _web_stats(conn) -> dict:
+    """联网检索缓存：多少条缓存、有没有配 Tavily key。库老没有表就返回 0。"""
+    try:
+        n = conn.execute("SELECT count(*) c FROM web_cache").fetchone()["c"]
+    except Exception:                            # noqa: BLE001
+        return {"cached": 0, "tavily": 0}
+    return {"cached": int(n or 0), "tavily": 1 if os.environ.get("TAVILY_API_KEY") else 0}
+
+
 def state(conn) -> dict:
     """面板上要显示的全部东西，一次拿全，别让前端发一堆请求。"""
     n_msg = conn.execute("SELECT count(*) c FROM messages").fetchone()["c"]
@@ -211,6 +220,7 @@ def state(conn) -> dict:
             "fts_ok": n_fts == n_msg,
             "memory": _memory_stats(conn),
             "facts": _facts_stats(conn),
+            "web": _web_stats(conn),
         },
         "files": {
             "db": fsize(DB_PATH),
