@@ -1,0 +1,48 @@
+{
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "rate": "+8%",
+  "avatars": [
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/工作_009.gif",
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/工作_008.gif",
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/开心_019.gif"
+  ],
+  "accent": "#5b8cff",
+  "slides": [
+    {
+      "kind": "cover",
+      "title": "它在群里学会了闭嘴",
+      "sub": "从零做 AI 应用 · 第 03 期",
+      "say": "这一期不讲功能，讲它怎么学会不说话。"
+    },
+    {
+      "kind": "bullets",
+      "title": "以前它在群里很吵",
+      "bullets": ["来一条消息就回一条", "别人发表情包它也点评", "没叫它，它也插嘴"],
+      "say": "以前它在群里很吵：来一条消息就回一条，别人发表情包它也要点评两句，没人叫它它照样插嘴。"
+    },
+    {
+      "kind": "bullets",
+      "title": "现在的三条规矩",
+      "bullets": ["攒 5 秒，合成一条", "群里必须 @ 才回", "表情包只算气氛，不点评"],
+      "say": "现在只有三条规矩：攒五秒合成一条，群里必须圈它才回，表情包只当气氛，不许点评。"
+    },
+    {
+      "kind": "bullets",
+      "title": "关键是拦住它",
+      "bullets": ["每条消息先拦住，不让它流下去", "5 秒计时器，最后一条重置", "整串一起交给模型"],
+      "say": "做法不复杂，关键是拦住：每条群消息先拦下来，不让它流到人格那边；五秒计时器，每来一条就重置；时间到，把整串消息一起交给模型，只让它回一条。"
+    },
+    {
+      "kind": "bullets",
+      "title": "代价也真实",
+      "bullets": ["每次回复都晚 5 秒", "哪句在说谁，得它自己判断"],
+      "say": "代价也是真的：每次回复都晚五秒，而且一串话里哪句在说谁，得它自己判断，判错就冷场。"
+    },
+    {
+      "kind": "bullets",
+      "title": "下一条",
+      "bullets": ["让它自己挑素材", "自己写评论，我只看结果"],
+      "say": "下一期，让它自己挑素材、自己写评论，我只看结果。"
+    }
+  ]
+}

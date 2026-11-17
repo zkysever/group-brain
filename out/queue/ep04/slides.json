@@ -1,0 +1,48 @@
+{
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "rate": "+8%",
+  "avatars": [
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/工作_008.gif",
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/开心_019.gif",
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/工作_009.gif"
+  ],
+  "accent": "#5b8cff",
+  "slides": [
+    {
+      "kind": "cover",
+      "title": "它自己会上网查了",
+      "sub": "从零做 AI 应用 · 第 04 期",
+      "say": "群里有人问了个群外的问题，它以前只会说不知道。"
+    },
+    {
+      "kind": "bullets",
+      "title": "卡在两个地方",
+      "bullets": ["群里查不到，就只会说不知道", "自己去抓网页，403 一大片"],
+      "say": "以前它只能在群里翻记录。有人问群外的事，它要么说不知道，要么自己抓网页，结果一大片四零三。"
+    },
+    {
+      "kind": "bullets",
+      "title": "三层兜底",
+      "bullets": ["先直接抓，能看就看", "打不开就上无头浏览器", "还不行，借我自己的浏览器"],
+      "say": "现在是三层兜底：先直接抓，能看就看；打不开就上无头浏览器；还不行，借我本机那个已经登录过的浏览器。登录态是真的透传过去了，知乎那种必须登录的页面，现在也能读到正文。"
+    },
+    {
+      "kind": "bullets",
+      "title": "两条安全底线",
+      "bullets": ["只许 http/https", "只走 80 和 443 端口", "不许碰内网地址"],
+      "say": "能抓网页就得防着被使唤：只允许 http 和 https，只走这两个端口，内网地址一律拒绝。少写这两行，这东西就能被人拿来敲你家路由器。"
+    },
+    {
+      "kind": "bullets",
+      "title": "现在的结果",
+      "bullets": ["403 的页面，能读到六千字", "链接丢进群，它当场看完再回答"],
+      "say": "现在你往群里丢一个链接，它当场看完再回答，不用你说去查一下。"
+    },
+    {
+      "kind": "bullets",
+      "title": "下一条",
+      "bullets": ["让它自己判断该不该上网", "而不是每次都要我提醒"],
+      "say": "下一条，让它自己判断该不该上网，而不是每次都等我提醒。"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "rate": "+8%",
+  "avatars": [
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/工作_009.gif",
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/开心_019.gif",
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/工作_008.gif"
+  ],
+  "accent": "#5b8cff",
+  "slides": [
+    {
+      "kind": "cover",
+      "title": "一个人怎么养住它",
+      "sub": "从零做 AI 应用 · 第 08 期",
+      "say": "这一期讲最难的部分：没人盯着的时候，它还活着吗。"
+    },
+    {
+      "kind": "bullets",
+      "title": "它每天都在自己干活",
+      "bullets": ["凌晨同步群消息", "抽事实、审事实、备份", "周一早上写周报"],
+      "say": "它每天半夜自己干活：同步群消息、抽事实、审事实、备份数据库，周一早上再写一份上周的周报。这些事没人看着也在跑。"
+    },
+    {
+      "kind": "bullets",
+      "title": "我只看三件事",
+      "bullets": ["它今天有没有出错", "错在哪一步", "要不要我动手"],
+      "say": "我每天只看三件事：有没有出错、错在哪一步、要不要我动手。所以日志必须写人话，不然我自己都看不懂。"
+    },
+    {
+      "kind": "bullets",
+      "title": "备份不是备了就行",
+      "bullets": ["每月自动恢复一次", "恢复不了，等于没备"],
+      "say": "备份最容易自欺欺人：文件在那儿，不代表能打开。所以我让它每个月自动恢复一次，真恢复不了才算问题。"
+    },
+    {
+      "kind": "bullets",
+      "title": "这套东西真正的意义",
+      "bullets": ["一个人也能维护一个在线服务", "关键不是代码多，是每天有人管"],
+      "say": "做完这八期我明白一件事：一个人维护一个在线服务是可能的。关键不是代码写得多厉害，是每天有人管它——哪怕那个人只有十七岁。"
+    },
+    {
+      "kind": "bullets",
+      "title": "下一条",
+      "bullets": ["继续做，但先把这条线走稳", "每周三条，直到它自己会长"],
+      "say": "下一条继续做，但先把这条线走稳。"
+    }
+  ]
+}
