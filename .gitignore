@@ -12,3 +12,11 @@ data/.gate_secret
 .env
 .DS_Store
 data/backups/
+
+# 视频产物（每期 6–8MB，只在服务器 /out/ 上留一份，不进仓库）
+out/*.mp4
+out/publish_*.png
+out/login_qr.png
+out/cover_dialog.png
+# 抽帧检查用的临时图
+_frames/
