@@ -1,0 +1,192 @@
+"""等 5 秒再回：把一阵消息合并成一次回复。
+
+为什么要这个
+-----------
+群里聊天是一阵一阵的：一句话被拆成三四条、中间还夹着表情包。原来的做法是
+来一条回一条，读起来像插嘴。这个插件改成：
+
+1. 每条消息只**记账**（谁说的、说了什么、带图没有），不立刻回；
+2. 每条新消息把计时器重置为 `idle_seconds`（默认 5 秒）；
+3. 计时器真的走完了（也就是 5 秒内没人再说话），才把这一阵话一次性交给模型，
+   只回一条。
+
+触发条件
+--------
+- 私聊：任何消息都算「在跟我说话」。
+- 群聊：默认只有被 @ 到时才算（`group_reply_needs_at`）。没被 @ 的群消息也会进
+  缓冲区当上下文，但不触发回复——这样它知道前面在聊什么，又不会自己插话。
+
+表情包
+------
+按 `meme_probability` 随机配一张，和文字放在同一条消息里发出去，不单独解说。
+"""
+from __future__ import annotations
+
+import asyncio
+import random
+import time
+from collections import deque
+from pathlib import Path
+
+from astrbot.api import logger
+from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.message_components import Image, Plain
+from astrbot.api.star import Context, Star
+from astrbot.core.message.message_event_result import MessageChain
+
+DEFAULT_PACK = Path(
+    "/AstrBot/data/plugin_data/meme_manager/packs/deepseek-fanart-meme-pack/memes"
+)
+IMAGE_EXTS = {".webp", ".jpg", ".jpeg", ".png", ".gif"}
+
+SYSTEM = """你是「蓝色大肥鱼」，一个住在 QQ 群里的 AI 助手，性别不明、说话随意、有点贫但热心。
+
+规则：
+1. 你看到的是这一阵子里连着发的几条消息，读完整再答，不要一条一条对。
+2. 回得短：一般一到两句，不超过 80 字。别写小作文，别分点，别用「首先/其次」。
+3. 群里有人互相开玩笑时，你可以接一句；但不要评价谁对谁错，不要劝架。
+4. 不知道就说不知道，不要编。别人问群里的事，你不知道就说「这我真不知道」。
+5. 不要自称「AI 语言模型」「助手」这类词，你就是群里那只鱼。
+"""
+
+
+class BatchReply(Star):
+    def __init__(self, context: Context, config: dict | None = None):
+        super().__init__(context)
+        cfg = config if isinstance(config, dict) else {}
+        self.cfg = cfg
+        self.idle = float(cfg.get("idle_seconds", 5) or 5)
+        self.need_at = bool(cfg.get("group_reply_needs_at", True))
+        self.meme_p = float(cfg.get("meme_probability", 0.35) or 0)
+        self.max_buf = int(cfg.get("max_buffer", 20) or 20)
+        self.max_chars = int(cfg.get("max_reply_chars", 80) or 80)
+        self.enabled = bool(cfg.get("enabled", True))
+        pack = str(cfg.get("meme_pack") or DEFAULT_PACK)
+        self.pack = Path(pack)
+
+        self._buf: dict[str, deque] = {}
+        self._task: dict[str, asyncio.Task] = {}
+        self._last_meme: dict[str, str] = {}
+
+    # ---------------------------------------------------------------- 记账
+
+    @filter.event_message_type(
+        filter.EventMessageType.ALL, priority=-200
+    )
+    async def on_message(self, event: AstrMessageEvent):
+        if not self.enabled:
+            return
+        umo = event.unified_msg_origin
+        text = (event.message_str or "").strip()
+
+        # 自己发的、以及空消息（纯图片且没文字）也记，但标记带图
+        has_image = bool(event.get_messages() and any(
+            isinstance(seg, Image) for seg in event.get_messages()))
+        if not text and not has_image:
+            return
+        if not text:
+            text = "[图片]"
+
+        is_group = ":GroupMessage:" in umo
+        at_me = bool(event.is_at_or_wake_command)
+        trigger = (not is_group) or (at_me if self.need_at else True)
+
+        # 命令（/ 开头）放行，交给 AstrBot 自己处理，不进缓冲区也不拦
+        if text.startswith("/"):
+            return
+
+        buf = self._buf.setdefault(umo, deque(maxlen=self.max_buf))
+        buf.append({"who": event.get_sender_name() or "某人", "text": text,
+                    "at": at_me, "ts": time.time()})
+        if trigger:
+            self._buf[umo].append({"trigger": True})  # 只做标记，触发用
+
+        # 重置计时
+        old = self._task.get(umo)
+        if old and not old.done():
+            old.cancel()
+        self._task[umo] = asyncio.create_task(self._fire_later(umo))
+
+        # 一律拦下：群里没被 @ 时也不许别的环节自己去回，否则会出现
+        # 「一条消息回两遍」和「逐条点评表情包」。回不回由这里统一决定。
+        event.stop_event()
+
+    # ---------------------------------------------------------------- 计时
+
+    async def _fire_later(self, umo: str) -> None:
+        try:
+            await asyncio.sleep(self.idle)
+        except asyncio.CancelledError:
+            return
+        try:
+            await self._flush(umo)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[batch] 汇总回复失败: {type(exc).__name__}: {exc}")
+
+    async def _flush(self, umo: str) -> None:
+        buf = self._buf.pop(umo, None)
+        if not buf:
+            return
+        lines = [x for x in buf if x.get("text")]
+        trigger = any(x.get("trigger") for x in buf)
+        if not trigger:
+            return                      # 没叫我，只是攒着当上下文，静默清掉
+        if not lines:
+            return
+
+        convo = "\n".join(f"{x['who']}：{x['text']}" for x in lines[-self.max_buf:])
+        prompt = f"这是刚才群里连着发的消息（最后一条是在叫我）：\n{convo}\n\n回一句。"
+        reply = await self._ask(umo, prompt)
+        if not reply:
+            return
+        await self._send(umo, reply)
+
+    # ---------------------------------------------------------------- 模型
+
+    async def _ask(self, umo: str, prompt: str) -> str:
+        prov = self.context.get_using_provider(umo)
+        if prov is None:
+            logger.warning("[batch] 没有可用的模型 provider")
+            return ""
+        resp = await prov.text_chat(prompt=prompt, system_prompt=SYSTEM)
+        text = (getattr(resp, "completion_text", "") or "").strip()
+        if len(text) > self.max_chars * 3:
+            text = text[: self.max_chars * 3]
+        return text
+
+    # ---------------------------------------------------------------- 发送
+
+    def _pick_meme(self, umo: str) -> Path | None:
+        if self.meme_p <= 0 or random.random() > self.meme_p:
+            return None
+        if not self.pack.exists():
+            return None
+        files = [p for p in self.pack.rglob("*") if p.suffix.lower() in IMAGE_EXTS]
+        if not files:
+            return None
+        last = self._last_meme.get(umo)
+        for _ in range(6):
+            p = random.choice(files)
+            if str(p) != last:
+                self._last_meme[umo] = str(p)
+                return p
+        return random.choice(files)
+
+    async def _send(self, umo: str, text: str) -> None:
+        chain = [Plain(text)]
+        meme = self._pick_meme(umo)
+        if meme is not None:
+            try:
+                chain.append(Image.fromFileSystem(str(meme)))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[batch] 表情包挂不上去: {exc}")
+        ok = await self.context.send_message(umo, MessageChain(chain))
+        logger.info(f"[batch] 回复 {umo}: {text[:30]}{'…' if len(text) > 30 else ''} "
+                    f"{'(带图)' if meme else ''} ok={bool(ok)}")
+
+    async def terminate(self) -> None:
+        for t in self._task.values():
+            if not t.done():
+                t.cancel()

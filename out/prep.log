@@ -1,0 +1,20 @@
+[周二 2026/11/17 13:00:02.33] prep 
+[next] 今天备 ep02（2026-11-17）
+[next]   $ C:\Users\Administrator\Desktop\group-brain\.venv\Scripts\python.exe tools/make_video.py C:\Users\Administrator\Desktop\group-brain\out\queue\ep02\slides.json C:\Users\Administrator\Desktop\group-brain\out\ep02.mp4
+[形象] 3 组，帧数 9, 4, 40
+[ok] 第 1 页 4.0s  字幕 2 行  它记住了我们上周说的话
+[ok] 第 2 页 7.3s  字幕 3 行  以前它只有 3 轮记忆
+[ok] 第 3 页 10.0s  字幕 6 行  改成存在服务器上
+[ok] 第 4 页 11.2s  字幕 5 行  顺手修了三个真 bug
+[ok] 第 5 页 12.6s  字幕 8 行  一条踩过的坑
+[ok] 第 6 页 3.5s  字幕 2 行  下一条
+[done] C:\Users\Administrator\Desktop\group-brain\out\ep02.mp4  6.7 MB
+[tmp] C:\Users\ADMINI~1\AppData\Local\Temp\gb_video_p9ym4133（可以删）
+[next]   $ C:\Users\Administrator\Desktop\group-brain\.venv\Scripts\python.exe tools/make_cover.py 它记住了我们上周说的话 从零做 AI 应用 · 第 02 期 C:\Users\Administrator\Desktop\group-brain\out\ep02_cover.png
+[封面] C:\Users\Administrator\Desktop\group-brain\out\ep02_cover.png  2560x1440
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\ep02.mp4 root@118.178.109.54:/opt/group-brain/out/
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\ep02_cover.png root@118.178.109.54:/opt/group-brain/out/
+[next] 已推到服务器：https://zkysever.com/out/ep02.mp4?k=bdadc853571f3f2a7a23545b158e6cd6
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\20261117-130146-prep-ep02.json root@118.178.109.54:/opt/qqbot/astrbot-data/curator/outbox/20261117-130146-prep-ep02.json
+[next] 已写投递单 20261117-130146-prep-ep02.json，QQ 插件 60 秒内把视频发给你
+[周二 2026/11/17 13:01:47.30] done 

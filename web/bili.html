@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B 站助手 · group-brain</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel-2:#1e222b; --line:#272c37;
+    --text:#e6e8ee; --muted:#8b93a7; --accent:#5b8cff; --ok:#38c172; --warn:#f0a020; --err:#e5534b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif}
+  .wrap{max-width:880px;margin:0 auto;padding:28px 18px 60px}
+  h1{font-size:26px;margin:0 0 4px}
+  .badge{display:inline-block;background:#243043;color:#9db8ff;border-radius:6px;
+         padding:1px 7px;font-size:12px;vertical-align:middle;margin-left:6px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:16px;margin-bottom:14px}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .kpi{background:var(--panel-2);border-radius:10px;padding:10px 12px}
+  .kpi b{display:block;font-size:20px}
+  .kpi span{color:var(--muted);font-size:12px}
+  input,textarea{width:100%;background:var(--panel-2);border:1px solid var(--line);
+        color:var(--text);border-radius:9px;padding:10px 12px;font:inherit;font-size:16px}
+  button{background:var(--accent);color:#fff;border:0;border-radius:9px;
+         padding:9px 16px;font:inherit;cursor:pointer}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
+  button.mini{padding:5px 10px;font-size:13px;border-radius:7px}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .acct{display:flex;justify-content:space-between;align-items:center;
+        background:var(--panel-2);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+  .acct .who{font-size:15px}
+  .acct .role{color:var(--muted);font-size:12px}
+  .draft{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--panel-2)}
+  .draft .meta{color:var(--muted);font-size:12px;margin-bottom:6px}
+  .draft .txt{font-size:15px;margin:6px 0 10px;white-space:pre-wrap}
+  .tag{display:inline-block;font-size:12px;padding:1px 7px;border-radius:6px;background:#23304a;color:#9db8ff;margin-right:6px}
+  .tag.ok{background:#183a26;color:#6ee7a0}
+  .tag.err{background:#3a1c1a;color:#ff9a94}
+  .qr{background:#fff;padding:10px;border-radius:10px;width:200px;height:200px}
+  .muted{color:var(--muted);font-size:13px}
+  .err{color:var(--err)}
+  .ok{color:var(--ok)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>B 站助手 <span class="badge" id="ver">v0.20</span></h1>
+  <div class="sub">
+    两个号分工：<b>刷视频号</b>看片选片，<b>投稿号</b>发视频和评论。草稿都要你点头才发。
+    <a href="/" style="color:var(--accent)">回搜索</a>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <b>账号</b>
+      <span class="muted">扫码用的是当前手机 B 站 App 里登录的那个号，扫前确认切换对了</span>
+    </div>
+    <div id="accts"><div class="muted">读取中…</div></div>
+    <div id="qrBox" class="row" style="margin-top:14px;display:none">
+      <img class="qr" id="qrImg" alt="二维码">
+      <div>
+        <div id="qrWho" class="muted"></div>
+        <div id="qrTip" class="muted" style="margin-top:6px">用手机 B 站 App 扫这个码</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="grid" id="kpis"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <b>评论草稿</b>
+      <span class="muted" id="quota"></span>
+    </div>
+    <div id="drafts" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <b>给某个视频写草稿</b>
+    <div class="muted" style="margin:6px 0 10px">填 BV 号（或整条链接），我会先读简介和热评，再写 3 条候选。</div>
+    <div class="row">
+      <input id="bvid" placeholder="BV1oEsp6RE25 或 https://www.bilibili.com/video/BV..." style="flex:1;min-width:240px">
+      <button id="genBtn">生成草稿</button>
+    </div>
+    <div id="genOut" class="muted" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <b>动作记录</b>
+    <div class="muted" style="margin:6px 0 10px">每次真的发出去（或失败）都在这里留痕。</div>
+    <div id="actions"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ROLE = { main: '刷视频 / 选片', upload: '投稿 / 发评论' };
+
+async function api(path, opts) {
+  const r = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts || {}));
+  if (r.status === 401) { location.href = '/login'; throw new Error('401'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || d.error || ('HTTP ' + r.status));
+  return d;
+}
+
+async function loadAccounts() {
+  const d = await api('/api/bili/accounts');
+  $('accts').innerHTML = d.items.map((a) => `
+    <div class="acct">
+      <div>
+        <div class="who">
+          ${a.ok ? '<span class="ok">已登录</span> · ' + esc(a.uname || '')
+                 : '<span class="err">未登录</span>'}
+        </div>
+        <div class="role">${esc(ROLE[a.account] || a.account)} · 账号位 <code>${esc(a.account)}</code></div>
+      </div>
+      <button class="ghost mini" data-qr="${esc(a.account)}">
+        ${a.ok ? '换一个号' : '扫码登录'}
+      </button>
+    </div>`).join('');
+}
+
+async function loadDrafts() {
+  const d = await api('/api/bili/drafts?status=pending');
+  const s = d.stats || {};
+  $('kpis').innerHTML = [
+    ['待发草稿', s.pending || 0], ['已发出', s.posted || 0],
+    ['已丢弃', s.dropped || 0], ['动作记录', s.actions || 0],
+  ].map(([k, v]) => `<div class="kpi"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('');
+  $('quota').textContent = `今天已发 ${d.posts_today} / ${d.post_per_day}`;
+
+  if (!d.items.length) {
+    $('drafts').innerHTML = '<div class="muted">还没有草稿。下面填个 BV 号让我先写几条。</div>';
+    return;
+  }
+  $('drafts').innerHTML = d.items.map((it) => `
+    <div class="draft">
+      <div class="meta">
+        <span class="tag">${esc(it.bvid)}</span>${esc(it.title || '')}
+        ${it.account ? ' · 用 ' + esc(it.account) + ' 号发' : ''}
+      </div>
+      <div class="txt">${esc(it.text)}</div>
+      ${it.reason ? `<div class="muted">为什么：${esc(it.reason)}</div>` : ''}
+      <div class="row" style="margin-top:10px">
+        <button class="mini" data-post="${it.id}">就发这条</button>
+        <button class="mini ghost" data-drop="${it.id}">不要</button>
+        <span class="muted" id="msg-${it.id}"></span>
+      </div>
+    </div>`).join('');
+}
+
+async function loadActions() {
+  const d = await api('/api/bili/actions?limit=8');
+  if (!d.items.length) { $('actions').innerHTML = '<div class="muted">还没有动作。</div>'; return; }
+  $('actions').innerHTML = d.items.map((a) => `
+    <div class="muted" style="margin-bottom:6px">
+      <span class="tag ${a.ok ? 'ok' : 'err'}">${a.ok ? '成功' : '失败'}</span>
+      ${esc(a.ts)} · ${esc(a.action)} · ${esc(a.target)}
+      ${a.code != null ? ' · code ' + esc(a.code) : ''} ${a.detail ? ' · ' + esc(a.detail) : ''}
+    </div>`).join('');
+}
+
+async function startQr(account) {
+  try {
+    const d = await api('/api/bili/qr?account=' + encodeURIComponent(account));
+    if (d.code !== 0) throw new Error('出码失败 code=' + d.code);
+    $('qrBox').style.display = 'flex';
+    $('qrImg').src = '/api/bili/qr.png?url=' + encodeURIComponent(d.url);
+    $('qrWho').innerHTML = '正在登录：<b>' + esc(ROLE[account] || account) + '</b>';
+    $('qrTip').textContent = '用手机 B 站 App 扫码，然后点「确认登录」';
+
+    const timer = setInterval(async () => {
+      try {
+        const p = await api('/api/bili/qr/poll?key=' + encodeURIComponent(d.key) +
+                            '&account=' + encodeURIComponent(account));
+        if (p.status === 'ok') {
+          clearInterval(timer);
+          $('qrTip').innerHTML = '<span class="ok">登录成功：' + esc(p.uname || '') + '</span>';
+          $('qrBox').style.display = 'none';
+          loadAccounts();
+        } else if (p.status === 'scanned') {
+          $('qrTip').textContent = '已扫码，请在手机上点「确认登录」';
+        } else if (p.status === 'expired') {
+          clearInterval(timer);
+          $('qrTip').innerHTML = '<span class="err">二维码过期，再点一次「扫码登录」</span>';
+        } else if (p.status === 'no_cookie') {
+          clearInterval(timer);
+          $('qrTip').innerHTML = '<span class="err">登录成功但没拿到 cookie，再点一次扫码</span>';
+        }
+      } catch (e) { /* 单次失败继续轮询 */ }
+    }, 2500);
+    setTimeout(() => clearInterval(timer), 180000);
+  } catch (e) {
+    $('qrBox').style.display = 'flex';
+    $('qrTip').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  }
+}
+
+$('genBtn').onclick = async () => {
+  const raw = $('bvid').value.trim();
+  const m = raw.match(/BV[0-9A-Za-z]{10}/);
+  if (!m) { $('genOut').innerHTML = '<span class="err">填个 BV 号，或者整条视频链接也行</span>'; return; }
+  $('genBtn').disabled = true;
+  $('genOut').textContent = '在读简介和热评，写草稿…（约 10 秒）';
+  try {
+    const d = await api('/api/bili/suggest?bvid=' + encodeURIComponent(m[0]) + '&n=3', { method: 'POST' });
+    if (!d.ok) throw new Error(d.error || '生成失败');
+    $('genOut').innerHTML = '<span class="ok">写好 ' + d.drafts.length + ' 条草稿：</span>' + esc(d.title || '');
+    loadDrafts();
+  } catch (e) { $('genOut').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+  $('genBtn').disabled = false;
+};
+
+document.addEventListener('click', async (ev) => {
+  const t = ev.target;
+  const qrAcc = t.getAttribute && t.getAttribute('data-qr');
+  const post = t.getAttribute && t.getAttribute('data-post');
+  const drop = t.getAttribute && t.getAttribute('data-drop');
+
+  if (qrAcc) { startQr(qrAcc); return; }
+
+  if (post) {
+    if (!confirm('确认用你的账号发这条评论？')) return;
+    t.disabled = true;
+    $('msg-' + post).textContent = '正在发…';
+    try {
+      const d = await api('/api/bili/post?id=' + post, { method: 'POST' });
+      $('msg-' + post).innerHTML = '<span class="ok">发出去了（rpid ' + esc(d.sent.rpid) + '）</span>';
+      setTimeout(loadDrafts, 900); loadActions();
+    } catch (e) {
+      $('msg-' + post).innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+      t.disabled = false;
+    }
+  }
+  if (drop) {
+    await api('/api/bili/drop?id=' + drop, { method: 'POST' });
+    loadDrafts();
+  }
+});
+
+loadAccounts(); loadDrafts(); loadActions();
+</script>
+</body>
+</html>

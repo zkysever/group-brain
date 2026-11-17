@@ -1,0 +1,48 @@
+{
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "rate": "+8%",
+  "avatars": [
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/工作_008.gif",
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/开心_019.gif",
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/工作_009.gif"
+  ],
+  "accent": "#5b8cff",
+  "slides": [
+    {
+      "kind": "cover",
+      "title": "它记住了我们上周说的话",
+      "sub": "从零做 AI 应用 · 第 02 期",
+      "say": "这周只干了一件事：让它真的有记忆。"
+    },
+    {
+      "kind": "bullets",
+      "title": "以前它只有 3 轮记忆",
+      "bullets": ["问完三句，前面就忘了", "刷新页面 = 失忆", "换手机 = 换了一个人"],
+      "say": "以前它只记得最近三轮，刷新一下页面就失忆，换台设备更是从零开始。"
+    },
+    {
+      "kind": "bullets",
+      "title": "改成存在服务器上",
+      "bullets": ["20 轮上下文，可以调", "记忆跟口令走，不用跟浏览器", "手机上问过的，电脑接着问"],
+      "say": "现在对话存在服务器上，二十轮上下文，记忆跟着口令走。手机上问过的，电脑打开接着问，它记得。"
+    },
+    {
+      "kind": "bullets",
+      "title": "顺手修了三个真 bug",
+      "bullets": ["记忆让它变懒：不重新抓网页，照着旧答案编", "贴了链接却被跳过前置", "SVG 里 8MB 注入把浏览器会话卡死"],
+      "say": "顺手修了三个真 bug，最有意思的是第一个：有了记忆之后它变懒了，明明该重新抓网页，却照着上次的失败答案编故事。"
+    },
+    {
+      "kind": "bullets",
+      "title": "一条踩过的坑",
+      "bullets": ["用 PowerShell 做字符串替换", "把整个文件的 v 换成了 e", "服务器崩了 3 分钟"],
+      "say": "还踩了一个很蠢的坑：我用 PowerShell 做字符串替换，把整个文件里的 v 全换成了 e，服务器崩了三分钟。教训是，改文件就用正经编辑器。"
+    },
+    {
+      "kind": "bullets",
+      "title": "下一条",
+      "bullets": ["让它在群里自己回话", "选片、写评论、出片全自动"],
+      "say": "下一条，让它自己在群里回话。"
+    }
+  ]
+}

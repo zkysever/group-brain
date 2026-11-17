@@ -17,13 +17,13 @@ from urllib.parse import parse_qs
 
 import requests
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import admin, agent, auth, coach, curator, db, facts, learn, memory, search
+from . import admin, agent, auth, bili, bili_writer, coach, curator, db, facts, learn, memory, search
 from . import config as cfg
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.19.1")
+app = FastAPI(title="group-brain", version="0.20.0")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
 PUBLIC = {"/login", "/api/health", "/favicon.ico", "/portfolio"}
@@ -66,7 +66,12 @@ def conn():
 async def gate(request: Request, call_next):
     """所有请求先过这道门；放行的两种：公开路径、cookie 合法。"""
     path = request.url.path
-    if path in PUBLIC or auth.is_open(request.cookies.get(auth.COOKIE_NAME)):
+    # /out/ 让投稿页跨域取视频用，它自己按 OUT_TOKEN 校验，不走口令 cookie
+    if (
+        path in PUBLIC
+        or path.startswith("/out/")
+        or auth.is_open(request.cookies.get(auth.COOKIE_NAME))
+    ):
         return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"detail": "需要口令", "login": "/login"}, status_code=401)
@@ -489,6 +494,33 @@ def _commit_count() -> str:
     return n
 
 
+# 要发出去的东西（视频、封面）放 out/，手机要能直接下载 —— B 站 App 投稿只能选本机文件。
+_OUT_DIR = Path(__file__).resolve().parent.parent / "out"
+_OUT_NAME = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
+
+
+@app.get("/out/{name}")
+def out_file(name: str, k: str = Query("", description="OUT_TOKEN，投稿页 fetch 用")):
+    if not _OUT_NAME.match(name):
+        raise HTTPException(404, "没有这个文件")
+    # 这一路是给「投稿页把视频读成 blob」用的：跨域 fetch 带不上口令 cookie，
+    # 所以用一次性 token 代替口令；没配 token 就只给本机调试用。
+    if cfg.OUT_TOKEN and k != cfg.OUT_TOKEN:
+        raise HTTPException(404, "没有这个文件")
+    root = _OUT_DIR.resolve()
+    p = (root / name).resolve()
+    # 只允许 root 下的直接子文件，挡 ../ 之类
+    if p.parent != root or not p.is_file():
+        raise HTTPException(404, "没有这个文件")
+    # 带 CORS：投稿页（member.bilibili.com）要用 fetch 把这份视频读成 blob 再塞进
+    # 它的 <input type=file>，不给跨域头浏览器会直接拦掉。
+    return FileResponse(
+        p,
+        filename=name,
+        headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"},
+    )
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page() -> str:
     """v0.7 管理面板。薄薄一层：点按钮 = 在服务器上跑一次 scripts/ 里的脚本。"""
@@ -558,3 +590,106 @@ def api_health():
              "error": f"{type(e).__name__}: {e}"},
             status_code=200,
         )
+
+# ------------------------------------------------------------------ B 站账号（v0.20）
+
+_QR_PNG_CACHE: dict[str, bytes] = {}
+
+
+@app.get("/bili", response_class=HTMLResponse)
+def bili_page():
+    """B 站运营页：扫码登录、看账号、审评论草稿、发出去。"""
+    return HTMLResponse((WEB_DIR / "bili.html").read_text(encoding="utf-8"))
+
+
+@app.get("/api/bili/accounts")
+def api_bili_accounts():
+    """两个账号各自的登录状态。main=刷视频，upload=投稿/评论。"""
+    c = conn()
+    out = []
+    for a in bili.accounts(c):
+        info = bili.me(c, a["account"])
+        out.append({**a, "ok": info.get("ok"), "uname": info.get("uname"),
+                    "mid": info.get("mid"), "level": info.get("level")})
+    return {"ok": True, "items": out}
+
+
+@app.get("/api/bili/me")
+def api_bili_me(account: str = Query(bili.ACC_MAIN)):
+    return bili.me(conn(), account)
+
+
+@app.get("/api/bili/qr")
+def api_bili_qr(account: str = Query(bili.ACC_UPLOAD)):
+    return bili.qr_start(account)
+
+
+@app.get("/api/bili/qr.png")
+def api_bili_qr_png(url: str = Query(...)):
+    """把二维码内容渲染成 PNG，前端 <img src> 直接用。"""
+    if url in _QR_PNG_CACHE:
+        return Response(_QR_PNG_CACHE[url], media_type="image/png")
+    try:
+        import qrcode
+    except Exception:                                  # noqa: BLE001
+        raise HTTPException(500, "服务器没装 qrcode 库")
+    img = qrcode.make(url)
+    import io as _io
+    buf = _io.BytesIO()
+    img.save(buf, format="PNG")
+    data = buf.getvalue()
+    _QR_PNG_CACHE[url] = data
+    if len(_QR_PNG_CACHE) > 20:
+        _QR_PNG_CACHE.clear()
+    return Response(data, media_type="image/png")
+
+
+@app.get("/api/bili/qr/poll")
+def api_bili_qr_poll(key: str = Query(...), account: str = Query(bili.ACC_UPLOAD)):
+    return bili.qr_poll(conn(), key, account)
+
+
+@app.get("/api/bili/drafts")
+def api_bili_drafts(status: str = Query("pending"), limit: int = Query(20, ge=1, le=100)):
+    c = conn()
+    return {"ok": True, "items": bili.drafts(c, status, limit), "stats": bili.stats(c),
+            "posts_today": bili_writer.posts_today(c),
+            "post_per_day": cfg.BILI_POST_PER_DAY}
+
+
+@app.post("/api/bili/suggest")
+def api_bili_suggest(bvid: str = Query(...), n: int = Query(3, ge=1, le=5)):
+    """给某个视频生成评论草稿（只落草稿，不发出去）。"""
+    return bili_writer.suggest(conn(), bvid, n)
+
+
+@app.post("/api/bili/post")
+def api_bili_post(id: int = Query(...)):
+    """人工点头：把这条草稿真的发出去。"""
+    c = conn()
+    row = c.execute("SELECT * FROM bili_drafts WHERE id=?", (id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "没有这条草稿")
+    ok, why = bili_writer.can_post(c, row["aid"])
+    if not ok:
+        raise HTTPException(429, why)
+    try:
+        sent = bili.approve(c, id)
+    except bili.BiliError as e:
+        c.execute("UPDATE bili_drafts SET status='failed', error=? WHERE id=?", (str(e)[:300], id))
+        c.commit()
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    return {"ok": True, "sent": sent}
+
+
+@app.post("/api/bili/drop")
+def api_bili_drop(id: int = Query(...)):
+    bili.drop_draft(conn(), id)
+    return {"ok": True}
+
+
+@app.get("/api/bili/actions")
+def api_bili_actions(limit: int = Query(20, ge=1, le=100)):
+    c = conn()
+    rows = c.execute("SELECT * FROM bili_actions ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return {"ok": True, "items": [dict(r) for r in rows]}

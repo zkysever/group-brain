@@ -1,0 +1,7 @@
+name: astrbot_plugin_batch_reply
+display_name: 等 5 秒再回（合并回复）
+desc: 群聊/私聊里把一阵子连着发的消息攒起来，停 5 秒后一次性读完再回一条；可随机配一张表情包，不单独解说。
+version: 1.0.0
+author: dsh
+repo: https://github.com/zkysever/group-brain
+astrbot_version: ">=4.0.0"

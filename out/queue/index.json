@@ -1,0 +1,19 @@
+{
+  "cadence": {
+    "daily_until": "2026-11-23",
+    "every_n_days_after": 3
+  },
+  "episodes": [
+    { "id": "ep02", "date": "2026-11-17", "status": "queued" },
+    { "id": "ep03", "date": "2026-11-18", "status": "todo" },
+    { "id": "ep04", "date": "2026-11-19", "status": "todo" },
+    { "id": "ep05", "date": "2026-11-20", "status": "todo" },
+    { "id": "ep06", "date": "2026-11-21", "status": "todo" },
+    { "id": "ep07", "date": "2026-11-22", "status": "todo" },
+    { "id": "ep08", "date": "2026-11-23", "status": "todo" },
+    { "id": "ep09", "date": "2026-11-26", "status": "todo" },
+    { "id": "ep10", "date": "2026-11-29", "status": "todo" },
+    { "id": "ep11", "date": "2026-12-02", "status": "todo" },
+    { "id": "ep12", "date": "2026-12-05", "status": "todo" }
+  ]
+}

@@ -1,0 +1,12 @@
+from app import db, bili
+print("import ok")
+c = db.connect()
+db.init()
+rows = c.execute("select name from sqlite_master where type='table' and name like 'bili%'").fetchall()
+print([r[0] for r in rows])
+print("stats:", bili.stats(c))
+print("me:", bili.me(c))
+print("view:", {k: v for k, v in bili.view("BV1oEsp6RE25", c).items() if k in ("code", "aid", "title", "owner")})
+print("replies:", bili.replies(113000000000000 if False else bili.view("BV1oEsp6RE25", c)["aid"], 3, c))
+print("search:", bili.search("B站评论 教程", 3, c))
+print("qr:", bili.qr_start())

@@ -1,0 +1,37 @@
+{
+  "enabled": {
+    "type": "bool",
+    "description": "启用这个插件",
+    "default": true
+  },
+  "idle_seconds": {
+    "type": "float",
+    "description": "多久没人说话才回（秒）",
+    "default": 5.0
+  },
+  "group_reply_needs_at": {
+    "type": "bool",
+    "description": "群里只有被 @ 时才回（关掉就每条都回）",
+    "default": true
+  },
+  "meme_probability": {
+    "type": "float",
+    "description": "回的时候配一张表情包的概率（0 表示从不配）",
+    "default": 0.35
+  },
+  "meme_pack": {
+    "type": "string",
+    "description": "表情包目录（留空用 meme_manager 的默认包）",
+    "default": ""
+  },
+  "max_buffer": {
+    "type": "int",
+    "description": "最多攒多少条消息当上下文",
+    "default": 20
+  },
+  "max_reply_chars": {
+    "type": "int",
+    "description": "回复字数上限（超出会被截断）",
+    "default": 80
+  }
+}

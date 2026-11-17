@@ -24,7 +24,7 @@ from pathlib import Path
 
 from astrbot.api import logger
 from astrbot.api.star import Context, Star
-from astrbot.core.message.components import Plain
+from astrbot.core.message.components import File, Plain, Video
 from astrbot.core.message.message_event_result import MessageChain
 
 BASE = Path("/AstrBot/data/curator")
@@ -93,10 +93,11 @@ class QQCurator(Star):
                 self._move(path, FAILED)
                 continue
 
-            ok = await self._send(text)
+            ok = await self._send(text, payload.get("file"), payload.get("name"),
+                                  payload.get("video_url"))
             if ok:
                 self._move(path, SENT)
-                logger.info(f"[curator] 已推送 {payload.get('bvid')} 到 {self.umo}")
+                logger.info(f"[curator] 已推送 {payload.get('bvid') or key} 到 {self.umo}")
                 self._tries.pop(key, None)
             else:
                 n = self._tries.get(key, 0) + 1
@@ -106,9 +107,23 @@ class QQCurator(Star):
                     self._move(path, FAILED)
                     self._tries.pop(key, None)
 
-    async def _send(self, text: str) -> bool:
+    async def _send(self, text: str, file_path: str | None = None,
+                    name: str | None = None, video_url: str | None = None) -> bool:
         try:
-            ret = await self.context.send_message(self.umo, MessageChain([Plain(text)]))
+            if video_url:
+                # 视频必须是「一条消息里唯一的一段」，所以先发视频，再发文字
+                ok = await self.context.send_message(
+                    self.umo, MessageChain([Video.fromURL(video_url)]))
+                if not ok:
+                    return False
+                return bool(await self.context.send_message(
+                    self.umo, MessageChain([Plain(text)])))
+
+            chain = [Plain(text)]
+            if file_path:
+                # 图片/文件走文件消息：File(name=..., file=容器内路径)
+                chain.append(File(name or Path(file_path).name, file=file_path))
+            ret = await self.context.send_message(self.umo, MessageChain(chain))
             return bool(ret)
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"[curator] send_message 抛错: {type(exc).__name__}: {exc}")

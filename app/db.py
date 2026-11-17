@@ -142,6 +142,41 @@ CREATE TABLE IF NOT EXISTS web_cache (
     ts   REAL NOT NULL         -- unix 秒，用于 TTL
 );
 
+-- B 站账号登录态（v0.20）：只有一行 k='cookie'。
+-- 为什么不放 .env：cookie 会被扫码登录刷新（expires、buvid 变化），
+-- 存库才能原地更新；.env 只留一个可选的 BILI_COOKIE 兜底。
+CREATE TABLE IF NOT EXISTS bili_auth (
+    k  TEXT PRIMARY KEY,
+    v  TEXT NOT NULL,
+    ts TEXT NOT NULL
+);
+
+-- B 站评论草稿（v0.20）：默认只落草稿，人工点头 approve() 才真的发出去。
+CREATE TABLE IF NOT EXISTS bili_drafts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    bvid       TEXT NOT NULL,
+    aid        INTEGER,
+    title      TEXT,
+    text       TEXT NOT NULL,
+    reason     TEXT,
+    status     TEXT NOT NULL DEFAULT 'pending',   -- pending / posted / dropped / failed
+    posted_at  TEXT,
+    rpid       INTEGER,
+    error      TEXT
+);
+
+-- 每一个真实的写操作都留痕（评论/点赞/关注），失败也记，方便回头看风控。
+CREATE TABLE IF NOT EXISTS bili_actions (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts     TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT NOT NULL,
+    ok     INTEGER NOT NULL,
+    code   INTEGER,
+    detail TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_name);
 CREATE INDEX IF NOT EXISTS idx_memes_tag ON memes(tag);
@@ -173,6 +208,9 @@ def connect() -> sqlite3.Connection:
 # 所以新加的列要在这里单独 ALTER 一次（每条只跑一次，代价可以忽略）。
 _MIGRATIONS = (
     ("facts", "auto", "INTEGER NOT NULL DEFAULT 0"),
+    # 2026-11-16：账号分成「刷视频的 main」和「投稿/发评论的 upload」，
+    # 草稿要记住该用哪个号发。
+    ("bili_drafts", "account", "TEXT NOT NULL DEFAULT 'upload'"),
 )
 
 

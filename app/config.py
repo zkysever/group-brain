@@ -132,5 +132,16 @@ CURATOR_PUSH_PER_HOUR = int(os.environ.get("CURATOR_PUSH_PER_HOUR", "1"))
 CURATOR_SCORE_PUSH = int(os.environ.get("CURATOR_SCORE_PUSH", "4"))
 CURATOR_WINDOW = (int(os.environ.get("CURATOR_WINDOW_START", "8")),
                   int(os.environ.get("CURATOR_WINDOW_END", "23")))
+# ---- B 站账号操作（v0.20）----
+# cookie 优先从库里读（扫码登录写进去的），这个环境变量只是兜底。
+BILI_COOKIE = os.environ.get("BILI_COOKIE", "").strip()
+# 自动发评论：默认关。开着的时候，curator 选中的视频会直接用第一条草稿发出去。
+BILI_AUTOPOST = os.environ.get("BILI_AUTOPOST", "0") == "1"
+# 每天最多发几条评论（含自动与手动），防手滑刷屏。
+BILI_POST_PER_DAY = int(os.environ.get("BILI_POST_PER_DAY", "5"))
+# 同一个视频只发一条（同一个 aid 重复评论最容易被判定为刷屏）。
+BILI_ONE_PER_VIDEO = os.environ.get("BILI_ONE_PER_VIDEO", "1") == "1"
 
-
+# /out/ 里那些「要发出去的文件」（视频、封面）：投稿页要跨域 fetch 它们，
+# 跨域请求带不上口令 cookie，所以用查询参数 token 换授权。配了才生效。
+OUT_TOKEN = os.environ.get("OUT_TOKEN", "").strip()
