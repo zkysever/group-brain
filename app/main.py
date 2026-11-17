@@ -19,14 +19,14 @@ import requests
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import admin, agent, auth, bili, bili_writer, coach, curator, db, facts, learn, memory, search
+from . import admin, agent, auth, bili, bili_writer, coach, curator, db, facts, learn, memory, search, series
 from . import config as cfg
 from .config import MEME_PACKS_DIR, WEB_DIR
 
 app = FastAPI(title="group-brain", version="0.20.0")
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
-PUBLIC = {"/login", "/api/health", "/favicon.ico", "/portfolio"}
+PUBLIC = {"/login", "/api/health", "/favicon.ico", "/portfolio", "/series", "/api/series"}
 
 _ERR_TEXT = {
     "bad": "口令不对，再试一次。",
@@ -462,6 +462,25 @@ def portfolio_page() -> str:
     ):
         html = html.replace(key, str(val))
     return html
+
+
+@app.get("/api/series")
+def api_series() -> dict:
+    """系列目录：哪些期已发布（有 BV 号）、哪些排了还没到点。"""
+    return series.episodes()
+
+
+@app.get("/series", response_class=HTMLResponse)
+def series_page() -> str:
+    """系列目录页：给视频简介里的链接用，不需要口令。
+
+    合集功能要电磁力 Lv2（粉丝 ≥100），现在开不了，所以先用这一页当「站外合集」：
+    每期视频简介底部都链过来，观众能顺着一集集看下去。
+    """
+    page = WEB_DIR / "series.html"
+    if not page.exists():
+        raise HTTPException(500, "web/series.html 不见了")
+    return page.read_text(encoding="utf-8")
 
 
 # 提交数不能写死：写在页面上那一刻就开始过期，而这是要给人看的东西。

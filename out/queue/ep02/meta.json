@@ -3,10 +3,21 @@
   "date": "2026-11-17",
   "filename": "ep02.mp4",
   "title": "它记住了我们上周说的话｜从零做 AI 应用 02",
-  "desc": "第 02 期：把「记忆」从浏览器搬进服务端。\n\n上一期它只有 3 轮记忆，刷新就失忆。这一期做了三件事：\n· 对话改成存在服务器上，20 轮上下文可调\n· 记忆跟着口令走，手机问过的电脑接着问\n· 顺手修了三个真 bug（记忆让它变懒、贴链接被跳过前置、大文件注入卡死会话）\n\n也踩了一个很蠢的坑：用 PowerShell 做字符串替换，把整个文件里的 v 换成了 e，服务器崩了三分钟。\n\n代码：https://github.com/zkysever/group-brain\n在线：https://zkysever.com/portfolio",
-  "tags": ["大模型", "RAG", "Python", "个人项目", "从零开始", "独立开发", "AI", "程序员日常"],
+  "desc": "第 02 期：把「记忆」从浏览器搬进服务端。\n\n上一期它只有 3 轮记忆，刷新就失忆。这一期做了三件事：\n· 对话改成存在服务器上，20 轮上下文可调\n· 记忆跟着口令走，手机问过的电脑接着问\n· 顺手修了三个真 bug（记忆让它变懒、贴链接被跳过前置、大文件注入卡死会话）\n\n也踩了一个很蠢的坑：用 PowerShell 做字符串替换，把整个文件里的 v 换成了 e，服务器崩了三分钟。\n\n系列目录：https://zkysever.com/series\n代码：https://github.com/zkysever/group-brain\n在线：https://zkysever.com/portfolio",
+  "tags": [
+    "大模型",
+    "RAG",
+    "Python",
+    "个人项目",
+    "从零开始",
+    "独立开发",
+    "AI",
+    "程序员日常"
+  ],
   "partition": "人工智能",
-  "declarations": ["含AI生成内容"],
+  "declarations": [
+    "含AI生成内容"
+  ],
   "cover_title": "它记住了我们上周说的话",
   "cover_sub": "从零做 AI 应用 · 第 02 期"
 }

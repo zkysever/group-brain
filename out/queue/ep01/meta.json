@@ -1,0 +1,13 @@
+{
+  "id": "ep01",
+  "date": "2026-11-16",
+  "filename": "ep01_v3.mp4",
+  "title": "我给一个 QQ 群装上了记忆｜从零做 AI 应用 01",
+  "desc_file": "out/queue/ep01/desc.txt",
+  "tags": ["大模型", "RAG", "检索", "Python", "个人项目", "从零开始", "独立开发", "前端", "AI"],
+  "partition": "人工智能",
+  "declarations": ["含AI生成内容"],
+  "cover_title": "我给一个 QQ 群装上了记忆",
+  "cover_sub": "从零做 AI 应用 · 第 01 期",
+  "bvid": "BV1F6sN6mEdm"
+}

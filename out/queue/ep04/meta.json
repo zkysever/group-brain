@@ -3,10 +3,21 @@
   "date": "2026-11-19",
   "filename": "ep04.mp4",
   "title": "它自己会上网查了｜从零做 AI 应用 04",
-  "desc": "第 04 期：群里查不到的问题，不该只会说「不知道」。\n\n这期做了三层兜底：\n· 先直接抓，能看就看\n· 打不开就上无头浏览器\n· 还不行，借我本机那个已经登录过的浏览器（登录态真透传了）\n\n外加两条安全底线：只允许 http/https、只走 80/443、内网地址一律拒绝——少写这两行，这东西能被拿来敲你家路由器。\n\n效果：403 的页面能读到六千字，链接丢进群它当场看完再回答。\n\n代码：https://github.com/zkysever/group-brain\n在线：https://zkysever.com/portfolio",
-  "tags": ["大模型", "AI", "Python", "个人项目", "从零开始", "独立开发", "爬虫", "程序员日常"],
+  "desc": "第 04 期：群里查不到的问题，不该只会说「不知道」。\n\n这期做了三层兜底：\n· 先直接抓，能看就看\n· 打不开就上无头浏览器\n· 还不行，借我本机那个已经登录过的浏览器（登录态真透传了）\n\n外加两条安全底线：只允许 http/https、只走 80/443、内网地址一律拒绝——少写这两行，这东西能被拿来敲你家路由器。\n\n效果：403 的页面能读到六千字，链接丢进群它当场看完再回答。\n\n系列目录：https://zkysever.com/series\n代码：https://github.com/zkysever/group-brain\n在线：https://zkysever.com/portfolio",
+  "tags": [
+    "大模型",
+    "AI",
+    "Python",
+    "个人项目",
+    "从零开始",
+    "独立开发",
+    "爬虫",
+    "程序员日常"
+  ],
   "partition": "人工智能",
-  "declarations": ["含AI生成内容"],
+  "declarations": [
+    "含AI生成内容"
+  ],
   "cover_title": "它自己会上网查了",
   "cover_sub": "从零做 AI 应用 · 第 04 期"
 }

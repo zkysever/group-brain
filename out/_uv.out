@@ -1,0 +1,2 @@
+INFO:     127.0.0.1:62281 - "GET /series HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62281 - "GET /api/series HTTP/1.1" 200 OK

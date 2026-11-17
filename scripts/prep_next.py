@@ -52,6 +52,18 @@ def enqueue(video: Path, text: str, url: str) -> str:
     return name
 
 
+def sync_queue() -> None:
+    """把 out/queue 的 JSON 同步到服务器——`/series` 系列页读的就是它。
+
+    不同步的话服务器只知道「上一期之前」的排期；这一页是公开页、要发给别人看，
+    数字和列表过期比空着更糟。
+    """
+    r = run(["scp", "-q", "-r", "-P", "2222", "-i", SSH_KEY,
+             ROOT / "out" / "queue", "root@118.178.109.54:/opt/group-brain/out/"])
+    if r.returncode != 0:
+        log("  !! 排期没同步到服务器（/series 会少几期，不影响发片）")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", default=None)
@@ -70,6 +82,7 @@ def main() -> int:
     video, cover, meta_path = build(ep)
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     push_to_server([video, cover])
+    sync_queue()
     url = public_url(video)
     log(f"已推到服务器：{url}")
 

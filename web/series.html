@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>从零做 AI 应用 · 系列目录</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 20px 80px;
+    background: radial-gradient(1200px 600px at 15% -10%, #1c2a4d 0%, #0b0f1a 55%, #080b12 100%);
+    color: #e8edf7; font: 16px/1.7 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px;
+    background: #1b2b52; color: #9fc0ff; border: 1px solid #2b4a8a; vertical-align: middle;
+  }
+  h1 { font-size: 30px; line-height: 1.3; margin: 0 0 8px; }
+  .sub { color: #93a1bb; margin: 0 0 6px; }
+  .meta { color: #6d7c96; font-size: 13px; margin: 0 0 28px; }
+  ol { list-style: none; padding: 0; margin: 0; }
+  li {
+    display: flex; gap: 14px; align-items: baseline;
+    padding: 16px 18px; margin-bottom: 10px; border-radius: 12px;
+    background: #101725; border: 1px solid #1d2740;
+  }
+  li.soon { background: #0d1320; border-style: dashed; }
+  .no { color: #5b6b88; font-variant-numeric: tabular-nums; font-size: 14px; min-width: 30px; }
+  .body { flex: 1; }
+  .t { font-weight: 600; }
+  a.t { color: #cfe0ff; text-decoration: none; }
+  a.t:hover { text-decoration: underline; }
+  .d { color: #6d7c96; font-size: 13px; margin-top: 2px; }
+  .bv { color: #7f8ea8; font-size: 12px; font-family: ui-monospace, Consolas, monospace; }
+  .foot { margin-top: 34px; color: #6d7c96; font-size: 13px; }
+  .foot a { color: #9fc0ff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>从零做 AI 应用 <span class="badge">系列目录</span></h1>
+  <p class="sub">一个人把一个想法做成能用的东西，每一期都留下失败的部分。</p>
+  <p class="meta" id="meta">正在读目录…</p>
+
+  <ol id="list"></ol>
+
+  <p class="foot">
+    在线作品：<a href="https://zkysever.com/portfolio">zkysever.com/portfolio</a> ·
+    代码：<a href="https://github.com/zkysever/group-brain">github.com/zkysever/group-brain</a><br>
+    B 站合集功能要 100 粉才开，所以先做了这一页当目录。
+  </p>
+</div>
+
+<script>
+const CN = ['零','一','二','三','四','五','六','七','八','九','十'];
+function cn(n) {
+  if (n <= 10) return CN[n];
+  if (n < 20) return '十' + (n % 10 ? CN[n % 10] : '');
+  return CN[Math.floor(n / 10)] + '十' + (n % 10 ? CN[n % 10] : '');
+}
+function fmtDate(s) {
+  if (!s) return '';
+  const [y, m, d] = s.split('-');
+  return `${y} 年 ${+m} 月 ${+d} 日`;
+}
+async function main() {
+  const r = await fetch('/api/series', { headers: { 'Accept': 'application/json' } });
+  if (!r.ok) { document.getElementById('meta').textContent = '目录读不出来，稍后再试。'; return; }
+  const d = await r.json();
+  const pubN = d.items.filter(i => i.bvid).length;
+  document.getElementById('meta').textContent =
+    `已发布 ${pubN} 期 · 目录共 ${d.total} 期 · 更新于 ${d.updated}`;
+  const ol = document.getElementById('list');
+  for (const it of d.items) {
+    const li = document.createElement('li');
+    if (!it.bvid) li.className = 'soon';
+    const no = document.createElement('span');
+    no.className = 'no';
+    no.textContent = '第 ' + cn(it.no) + ' 期';
+    const body = document.createElement('div');
+    body.className = 'body';
+    if (it.bvid) {
+      const a = document.createElement('a');
+      a.className = 't';
+      a.href = it.url;
+      a.textContent = it.title;
+      body.appendChild(a);
+    } else {
+      const t = document.createElement('div');
+      t.className = 't';
+      t.textContent = it.title;
+      body.appendChild(t);
+    }
+    const dt = document.createElement('div');
+    dt.className = 'd';
+    dt.innerHTML = it.bvid
+      ? `${fmtDate(it.date)} · <span class="bv">${it.bvid}</span>`
+      : (it.status === 'due' ? `${fmtDate(it.date)} · 今天发` : `${fmtDate(it.date)} · 还没到`);
+    body.appendChild(dt);
+    li.append(no, body);
+    ol.appendChild(li);
+  }
+}
+main();
+</script>
+</body>
+</html>
