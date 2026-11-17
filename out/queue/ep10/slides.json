@@ -1,0 +1,48 @@
+{
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "rate": "+8%",
+  "avatars": [
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/工作_009.gif",
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/工作_008.gif",
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/开心_019.gif"
+  ],
+  "accent": "#5b8cff",
+  "slides": [
+    {
+      "kind": "cover",
+      "title": "九个想法，全没用",
+      "sub": "从零做 AI 应用 · 第 10 期",
+      "say": "这一期没有一个成功案例，全是失败。"
+    },
+    {
+      "kind": "bullets",
+      "title": "目标很简单：召回 0.85",
+      "bullets": ["当时卡在 0.84", "差一个点，看着特别近"],
+      "say": "难度题集的召回卡在百分之八十四，目标是百分之八十五。就差一个点，看着特别近，结果我试了九种办法。"
+    },
+    {
+      "kind": "bullets",
+      "title": "我试过的九种",
+      "bullets": ["多写几种问法", "先让模型猜个答案再搜", "拿结果反查原文", "把相邻消息拼起来"],
+      "say": "多写几种问法、先让模型猜个答案再搜、拿结果反查原文、把相邻消息拼起来、再加一个重排模型……每一种我都真写了，也真跑了评测。"
+    },
+    {
+      "kind": "bullets",
+      "title": "结果：一种都没成",
+      "bullets": ["有的涨召回，掉精度", "有的干脆全线下降", "重排反而更差"],
+      "say": "结果是零。有的涨了一点召回但掉精度，有的干脆全线下降，最像能救场的重排模型反而把结果排得更差。"
+    },
+    {
+      "kind": "bullets",
+      "title": "为什么还留着这些记录",
+      "bullets": ["下次别再想一遍", "也证明 0.84 不是没努力"],
+      "say": "这九次都写在仓库的评测记录里，没删。一是下次别再想一遍，二是它证明百分之八十四不是我偷懒，是这个方法在这份数据上的上限。"
+    },
+    {
+      "kind": "bullets",
+      "title": "下一条",
+      "bullets": ["换个战场：让它自己开浏览器"],
+      "say": "下一条换个战场：不在检索里抠了，让它自己去开浏览器。"
+    }
+  ]
+}

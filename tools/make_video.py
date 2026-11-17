@@ -33,6 +33,7 @@ import asyncio
 import json
 import math
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -334,8 +335,30 @@ def audio_duration(path: str) -> float:
     return h * 3600 + mi * 60 + s
 
 
+def _prefer_ipv4() -> None:
+    """只走 IPv4。
+
+    edge-tts 的域名在部分网络里会先解析到 IPv6（2620:1ec:33::10），而这台机器的
+    IPv6 出口是坏的：连接直接被 reset（WinError 10054）或报「指定的网络名不再可用」。
+    PowerShell 的 Test-NetConnection 走 IPv4 所以显示通，python 直接炸——踩过一次。
+    """
+    if getattr(_prefer_ipv4, "_done", False):
+        return
+    _orig = socket.getaddrinfo
+
+    def getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        infos = _orig(host, port, family, type, proto, flags)
+        v4 = [i for i in infos if i[0] == socket.AF_INET]
+        return v4 or infos
+
+    socket.getaddrinfo = getaddrinfo
+    _prefer_ipv4._done = True
+
+
 async def tts(text: str, path: str, voice: str, rate: str) -> None:
     import edge_tts
+
+    _prefer_ipv4()
     await edge_tts.Communicate(text, voice, rate=rate).save(path)
 
 

@@ -53,6 +53,7 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | 联网检索：群外的问题（版本号/新闻/文档）自己上网查，回答带来源链接（`web_search` + `fetch_url`） | ✅ v0.18，`app/websearch.py`，8 条联网评测 8/8 |
 | 真浏览器兜底：403 / JS 壳页面转发到主人电脑上的真 Chromium 去读（`BROWSER_READER`，SSH 反向隧道 8010） | ✅ v0.18.1，隧道断了自动退回纯 HTTP |
 | B 站选片：先看简介+热评（免费）打分，值得才深读页面（每天≤3 次），08:00–22:59 每小时最多推 1 条到 QQ 私聊 | ✅ v0.19，`app/curator.py` + `tools/astrbot_plugin_qq_curator/`，见 `docs/curator.md` |
+| 视频流水线 + 投稿：文案 → 配音/字幕/封面 → 推 QQ 给他过目 → bsk 驱动他的浏览器投稿 | ✅ v0.20，`tools/make_video.py` / `make_cover.py` / `scripts/prep_next.py` / `tools/publish_bsk.py`，见 `docs/publish.md`；EP01=BV1F6sN6mEdm、EP02=BV1FDsu64EMn |
 
 ---
 
@@ -118,6 +119,7 @@ group-brain/
 │  ├─ routing.md         路由实验：20 行正则凭什么和大模型打平
 │  ├─ coach.md           周报为什么是「先算事实再让模型写」
 │  ├─ curator.md         B 站选片：为什么分两档、为什么推送靠写文件
+│  ├─ publish.md         投稿上线：三个静默坑（简介被丢、登录按会话、合集有门槛）
 │  └─ cloudflare.md      域名与 NS
 ├─ data/
 │  ├─ raw/               ← AstrBot 数据库副本放这儿

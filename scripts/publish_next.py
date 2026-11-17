@@ -156,6 +156,17 @@ def main() -> int:
 
     cmd = [PY, "tools/publish_bsk.py", "--meta", meta_path, "--video-url", video_url,
            "--cover-url", cover_url]
+    # 顺手补历史稿件的简介：out/queue/desc_fix.json 里写 {"aid": "...", "file": "out/queue/ep01/desc.txt"}
+    fix_path = ROOT / "out" / "queue" / "desc_fix.json"
+    if fix_path.exists():
+        try:
+            for item in json.loads(fix_path.read_text(encoding="utf-8")):
+                aid, f = str(item.get("aid") or "").strip(), str(item.get("file") or "").strip()
+                if aid and f:
+                    cmd += ["--fix-desc", f"{aid}={f}"]
+                    log(f"  发布后会顺手补简介：aid={aid}")
+        except (ValueError, OSError) as exc:
+            log(f"  desc_fix.json 读不了，跳过：{exc}")
     if args.session:
         cmd += ["--session", args.session]
     if args.skip_login:

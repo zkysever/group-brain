@@ -45,6 +45,8 @@ SITE = "https://www.bilibili.com/"
 LOGIN_PAGE = "https://passport.bilibili.com/login"
 UPLOAD_PAGE = "https://member.bilibili.com/platform/upload/video/frame"
 MID_UPLOAD = "3546624852756939"
+DESC_HINT = "填写更全面的相关信息"
+EDIT_URL = "https://member.bilibili.com/platform/upload/video/frame?aid={aid}&type=edit"
 
 
 def log(msg: str) -> None:
@@ -184,19 +186,52 @@ def wait_uploaded(limit_s: int = 300) -> None:
 def fill_text(meta: dict) -> str:
     code = (
         "(() => { const TITLE = " + json.dumps(meta["title"], ensure_ascii=False) + ";"
-        " const DESC = " + json.dumps(meta["desc"], ensure_ascii=False) + ";"
         " const out = {};"
         " const setNative = (el, v) => { const d = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');"
         " d.set.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true }));"
         " el.dispatchEvent(new Event('change', { bubbles: true })); };"
         " const t = [...document.querySelectorAll('input')].find(e => (e.placeholder || '').indexOf('稿件标题') >= 0);"
         " if (t) { setNative(t, TITLE); out.title = t.value.length; }"
-        " const q = document.querySelector('.ql-editor');"
-        " const inst = q && (q.__quill || (q.parentElement && q.parentElement.__quill));"
-        " if (inst && inst.setText) { inst.setText(DESC); out.desc = 1; }"
         " return JSON.stringify(out); })()"
     )
     return js(code)
+
+
+def find_ref(needle: str) -> str:
+    """在 VOM 里按文字找 @eN（填简介这类富文本只能用 bsk fill 走真输入）。"""
+    vom = sync().get("vom") or ""
+    for line in vom.splitlines():
+        if needle in line and "@e" in line:
+            return "@e" + line.split("@e")[1].split()[0]
+    return ""
+
+
+def fill_desc(text: str) -> bool:
+    """填简介。
+
+    **不能用 JS 写 Quill**：`__quill.setText()` 页面上看得见、计数也会涨，
+    但提交时不带这段内容（EP01/EP02 第一次发布简介就是空的）。
+    只有 `bsk fill` 往编辑器里真打字，框架状态才会更新。
+    """
+    ref = ""
+    for _ in range(6):
+        ref = find_ref(DESC_HINT)
+        if ref:
+            break
+        time.sleep(2)
+    if not ref:
+        log("  没找到简介编辑器")
+        return False
+    p = bsk("fill", "--session", SCOPE, "--ref", ref, "--value", text,
+            "--timeout", "120s", check=False)
+    if p.returncode != 0:
+        log("  简介填充失败：" + (p.stderr or p.stdout).strip()[:200])
+        return False
+    time.sleep(1)
+    vom = sync().get("vom") or ""
+    log(f"  简介已填（{len(text)} 字）")
+    return DESC_HINT in vom
+
 
 
 def clear_tags() -> str:
@@ -328,6 +363,8 @@ def main() -> int:
     ap.add_argument("--skip-login", action="store_true")
     ap.add_argument("--login-only", action="store_true")
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--fix-desc", action="append", default=[],
+                    metavar="AID=FILE", help="发完之后顺手补某个旧稿件的简介")
     args = ap.parse_args()
 
     if args.login_only:
@@ -346,7 +383,9 @@ def main() -> int:
 
     log("注入视频 → " + upload_video(args.video_url, meta.get("filename", "episode.mp4")))
     wait_uploaded()
-    log("填标题/简介 → " + fill_text(meta))
+    log("填标题 → " + fill_text(meta))
+    if not fill_desc(meta["desc"]):
+        log("  !! 简介没填上，提交后要补")
     log("清旧标签 → " + clear_tags())
     time.sleep(1)
     log("加标签 → " + add_tags(meta.get("tags") or []))
@@ -372,10 +411,40 @@ def main() -> int:
     time.sleep(10)
     shot(Path("out") / "publish_done.png")
     vom = sync().get("vom") or ""
-    if "投递成功" in vom:
-        log("投稿成功")
-        return 0
-    raise RuntimeError("点完投稿没看到「投递成功」，看 out/publish_done.png")
+    if "投递成功" not in vom:
+        raise RuntimeError("点完投稿没看到「投递成功」，看 out/publish_done.png")
+    log("投稿成功")
+
+    # 顺手补旧稿的简介（EP01/EP02 第一次发布时简介被 JS 写丢了）
+    for spec in args.fix_desc or []:
+        aid, _, path = spec.partition("=")
+        if not aid or not path:
+            log(f"  --fix-desc 格式不对，跳过：{spec}")
+            continue
+        fix_desc(aid.strip(), Path(path))
+    return 0
+
+
+def fix_desc(aid: str, path: Path) -> None:
+    """打开编辑页，用 bsk fill 重填简介并提交。"""
+    log(f"补简介 aid={aid}")
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        log("  文件是空的，跳过")
+        return
+    open_url(EDIT_URL.format(aid=aid))
+    time.sleep(6)
+    if not fill_desc(text):
+        log("  填充失败")
+        return
+    shot(Path("out") / f"fixdesc_{aid}.png")
+    if not click_text("立即投稿"):
+        log("  没找到提交按钮")
+        return
+    time.sleep(10)
+    vom = sync().get("vom") or ""
+    log("  " + ("补完了" if "投递成功" in vom else "提交后没看到成功页，看截图"))
+
 
 
 if __name__ == "__main__":

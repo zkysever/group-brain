@@ -1,0 +1,48 @@
+{
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "rate": "+8%",
+  "avatars": [
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/工作_008.gif",
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/开心_019.gif",
+    "C:/Users/Administrator/Desktop/space/deepseek表情包/16_动态GIF/工作_009.gif"
+  ],
+  "accent": "#5b8cff",
+  "slides": [
+    {
+      "kind": "cover",
+      "title": "它自己会开浏览器",
+      "sub": "从零做 AI 应用 · 第 11 期",
+      "say": "这一期讲它怎么从「只能读接口」变成「能看网页」。"
+    },
+    {
+      "kind": "bullets",
+      "title": "一开始只会抓网页",
+      "bullets": ["拿到的是一堆前端代码", "正文一个字都没有"],
+      "say": "一开始它只会用最笨的办法抓网页，拿回来的是一堆前端代码，正文一个字都没有。"
+    },
+    {
+      "kind": "bullets",
+      "title": "被拦了三次",
+      "bullets": ["知乎直接 403", "B 站给个空壳", "接口要一个随机身份"],
+      "say": "然后是被拦：知乎直接四百零三，B 站给一个空壳页面，官方接口不给随机身份就回四百一十二。这些坑我一个个填。"
+    },
+    {
+      "kind": "bullets",
+      "title": "三档兜底",
+      "bullets": ["先直连", "不行就服务器开无头浏览器", "再不行借我的浏览器"],
+      "say": "最后做成三档：先直连，不行就服务器自己开无头浏览器，再不行就借我自己那台机器上的浏览器——因为它身上有我的登录状态。"
+    },
+    {
+      "kind": "bullets",
+      "title": "同一页，三种结果",
+      "bullets": ["直连：650 字节", "无头：6000 字", "借浏览器：带登录内容"],
+      "say": "同一个页面三种结果：直连六百五十字节，无头浏览器六千字，借我的浏览器还能拿到只有登录后才看得见的内容。"
+    },
+    {
+      "kind": "bullets",
+      "title": "下一条",
+      "bullets": ["这些视频本身是怎么做出来的"],
+      "say": "下一条讲这些视频本身是怎么做出来的——它们也是代码生成的。"
+    }
+  ]
+}
