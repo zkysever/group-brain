@@ -53,6 +53,15 @@ TASKS: dict[str, dict] = {
                 "想一次多试几条就带 --force；只想看判断不推送带 --dry。",
         "timeout": 600,
     },
+    "weird": {
+        "label": "抽象日报（12 个关键词搜一轮 + 挑 10–20 条）",
+        "script": "weird_run.py",
+        "args": [],
+        "cost": "约 40–90 秒：48 次搜索 + 1 次模型排序，几毛钱",
+        "note": "每天 12:00 自动跑，只发链接、一批 10–20 条。"
+                "想提前看一眼带 --dry（只挑不发）；今天已经推过还想再来一批带 --force。",
+        "timeout": 900,
+    },
     "fts": {
         "label": "重建关键词索引",
         "script": "rebuild_fts.py",

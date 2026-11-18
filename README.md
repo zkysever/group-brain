@@ -53,7 +53,8 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | 联网检索：群外的问题（版本号/新闻/文档）自己上网查，回答带来源链接（`web_search` + `fetch_url`） | ✅ v0.18，`app/websearch.py`，8 条联网评测 8/8 |
 | 真浏览器兜底：403 / JS 壳页面转发到主人电脑上的真 Chromium 去读（`BROWSER_READER`，SSH 反向隧道 8010） | ✅ v0.18.1，隧道断了自动退回纯 HTTP |
 | B 站选片：先看简介+热评（免费）打分，值得才深读页面（每天≤3 次），08:00–22:59 每小时最多推 1 条到 QQ 私聊 | ✅ v0.19，`app/curator.py` + `tools/astrbot_plugin_qq_curator/`，见 `docs/curator.md` |
-| 视频流水线 + 投稿：文案 → 配音/字幕/封面 → 推 QQ 给他过目 → bsk 驱动他的浏览器投稿 | ✅ v0.20，`tools/make_video.py` / `make_cover.py` / `scripts/prep_next.py` / `tools/publish_bsk.py`，见 `docs/publish.md`；EP01=BV1F6sN6mEdm、EP02=BV1FDsu64EMn |
+| 视频流水线 + 投稿：文案 → 配音/字幕/封面 → 推 QQ 给他过目 → bsk 驱动他的浏览器投稿 | ✅ v0.20，`tools/make_video.py` / `make_cover.py` / `scripts/prep_next.py` / `tools/publish_bsk.py`，见 `docs/publish.md`；EP01=BV1F6sN6mEdm、EP02=BV1FDsu64EMn、EP03=BV1pgsm6MEeJ |
+| 抽象日报：12 个关键词搜 200+ 候选 → 模型按「猎奇抽象」排序 → 每天 12:00 只发 10–20 条链接到 QQ | ✅ v0.21，`app/weird.py` + `scripts/weird_run.py`，见 `docs/weird.md` |
 
 ---
 
@@ -75,6 +76,7 @@ group-brain/
 │  ├─ facts.py           事实记忆：人工点头过的「谁是什么样」，只索引 approved；`score()` 给待审打分供自动审阅
 │  ├─ websearch.py       联网检索：Bing 中文结果页（可选 Tavily）+ `web_cache` 缓存 + SSRF 防护的抓页（v0.18）
 │  ├─ curator.py         B 站选片：热门列表 → 热评打分 → 值得才深读 → 写 outbox 给 AstrBot 推 QQ（v0.19）
+│  ├─ weird.py           抽象日报：关键词搜候选 → 模型按「猎奇」排序 → 每天 12:00 只发链接（v0.21）
 │  ├─ expand.py          查询扩展（v0.16 实验，实测无效，默认关）
 │  ├─ ...（消息句意走到 scripts/gloss_messages.py，v0.17 实验，默认关）
 │  ├─ router.py          A3 落地：规则前置 + 自学规则（有把握就先跑工具，省一次往返）
@@ -105,6 +107,7 @@ group-brain/
 │  ├─ pull_backup.ps1    把服务器上最新备份拉到本机（备份不能和库放同一块盘）
 │  ├─ selftest.py        CI 用的自检：临时库跑一遍主链路，不碰你的数据
 │  ├─ curator_run.py     手动跑一轮 B 站选片（面板按钮 / cron 入口）
+│  ├─ weird_run.py       抽象日报：每天 12:00 一批 10–20 条链接（面板按钮 / cron 入口）
 │  └─ db_maintenance.py  WAL 合并 / VACUUM
 ├─ web/
 │  ├─ index.html         搜索页（原生三件套，无框架）
@@ -119,6 +122,7 @@ group-brain/
 │  ├─ routing.md         路由实验：20 行正则凭什么和大模型打平
 │  ├─ coach.md           周报为什么是「先算事实再让模型写」
 │  ├─ curator.md         B 站选片：为什么分两档、为什么推送靠写文件
+│  ├─ weird.md           抽象日报：风格怎么定、为什么红线要过滤两次
 │  ├─ publish.md         投稿上线：三个静默坑（简介被丢、登录按会话、合集有门槛）
 │  └─ cloudflare.md      域名与 NS
 ├─ data/
