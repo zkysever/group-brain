@@ -220,7 +220,7 @@ def fill_desc(text: str) -> bool:
             break
         time.sleep(2)
     if not ref:
-        log("  没找到简介编辑器")
+        log("  没找到简介编辑器（placeholder 不在：可能已经有内容了）")
         return False
     p = bsk("fill", "--session", SCOPE, "--ref", ref, "--value", text,
             "--timeout", "120s", check=False)
@@ -228,9 +228,26 @@ def fill_desc(text: str) -> bool:
         log("  简介填充失败：" + (p.stderr or p.stdout).strip()[:200])
         return False
     time.sleep(1)
-    vom = sync().get("vom") or ""
-    log(f"  简介已填（{len(text)} 字）")
-    return DESC_HINT in vom
+    # 校验用「编辑器里实际有多少字」，不能用 placeholder 是否还在：
+    # 填成功后 placeholder 本来就会消失，2026-11-18 那次就是被这条判据误报成失败。
+    r = js(
+        "(() => { const q = document.querySelector('.ql-editor');"
+        " return q ? String((q.innerText || '').trim().length) : '-1'; })()"
+    )
+    raw = (r or "").strip()
+    if raw.startswith('{'):
+        try:
+            obj = json.loads(raw)
+            raw = str(obj.get("value", obj.get("result", "")))
+        except json.JSONDecodeError:
+            pass
+    try:
+        n = int(raw.strip().strip('"').strip())
+    except ValueError:
+        n = -1
+    ok = n >= max(10, int(len(text) * 0.8))
+    log(f"  简介填入 {n} 字 / 目标 {len(text)} 字 → {'OK' if ok else '少了'}")
+    return ok
 
 
 
