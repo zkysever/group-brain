@@ -49,8 +49,8 @@ IMAGE_EXTS = {".webp", ".jpg", ".jpeg", ".png", ".gif"}
 # 拿不到就退回纯聊天：这两个调用都是「锦上添花」，挂了不许影响回复。
 GB_BRAIN = (os.environ.get("GB_BRAIN_URL") or "https://zkysever.com").rstrip("/")
 GB_TOKEN_FILE = Path("/AstrBot/data/gb_lexicon_token.txt")
-GB_TIMEOUT_GET = 3.0
-GB_TIMEOUT_POST = 15.0
+GB_TIMEOUT_GET = 1.5   # 查词库在路上；回复不该等一本词典超过 1.5 秒
+GB_TIMEOUT_POST = 15.0  # 复盘是后台任务，可以慢
 
 
 def _gb_token() -> str:
