@@ -112,19 +112,32 @@ def forget(conn: sqlite3.Connection, session_id: str) -> int:
 
 
 def trim(conn: sqlite3.Connection, session_id: str, keep_turns: int = KEEP_TURNS) -> int:
-    """把超出保留上限的老问答删掉，返回删了几条。"""
+    """把超出保留上限的老问答删掉，返回删了几条。
+
+    **按「轮」删，不按「行」删**：早先的写法是 `LIMIT -1 OFFSET keep*2`，
+    但库里偶尔会出现半轮（上一个进程刚好在写 user 和写 assistant 之间崩掉），
+    按行数切就会把某一对拆开，留下一条「assistant 凭空回答」的开头。
+    这里的做法是：先按行切，再把切完后最老的那条如果是 assistant，一起删掉。
+    """
     keep = keep_turns * 2
-    ids = [
+    old = [
         r[0]
         for r in conn.execute(
             "SELECT id FROM agent_turns WHERE session_id=? ORDER BY id DESC LIMIT -1 OFFSET ?",
             (session_id, keep),
         ).fetchall()
     ]
-    if not ids:
+    if not old:
         return 0
-    marks = ",".join("?" * len(ids))
-    cur = conn.execute(f"DELETE FROM agent_turns WHERE id IN ({marks})", ids)
+    # 保住的那批里，最老一条如果是 assistant，说明它对应的问题已经被切走了
+    oldest_kept = conn.execute(
+        "SELECT id, role FROM agent_turns WHERE session_id=? ORDER BY id DESC LIMIT 1 OFFSET ?",
+        (session_id, keep - 1),
+    ).fetchone()
+    if oldest_kept and oldest_kept["role"] == "assistant":
+        old.append(oldest_kept["id"])
+    marks = ",".join("?" * len(old))
+    cur = conn.execute(f"DELETE FROM agent_turns WHERE id IN ({marks})", old)
     conn.commit()
     return cur.rowcount
 

@@ -26,7 +26,7 @@ from . import config as cfg
 from . import vectors
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.22.1")
+app = FastAPI(title="group-brain", version="0.22.2")
 
 
 @app.on_event("startup")
@@ -229,6 +229,27 @@ def agent_page() -> str:
     return page.read_text(encoding="utf-8")
 
 
+_SESSION_LOCKS: dict[str, threading.Lock] = {}
+_SESSION_LOCKS_GUARD = threading.Lock()
+
+
+def _session_lock(session: str) -> threading.Lock:
+    """按会话取一把锁（同一个会话串行，不同会话并发）。
+
+    锁表本身很小（一个口令 = 一个会话），但 `AGENT_SHARED_MEMORY=0` 时每个浏览器
+    一个会话，所以要有个上限：超过 500 个就把整张表清掉重建——清错最多丢一次
+    串行性，不会丢数据，比无限长着占用内存好。
+    """
+    with _SESSION_LOCKS_GUARD:
+        if len(_SESSION_LOCKS) > 500:
+            _SESSION_LOCKS.clear()
+        lock = _SESSION_LOCKS.get(session)
+        if lock is None:
+            lock = threading.Lock()
+            _SESSION_LOCKS[session] = lock
+        return lock
+
+
 def _agent_session(request: Request) -> tuple[str, bool]:
     """返回 (会话 id, 是不是新开的)。
 
@@ -283,13 +304,18 @@ def api_agent(
         # 旧的浏览器内存方案：只有在服务端确实没记录时才用它，避免两套上下文打架
         past = agent._norm_history(history)
 
-    res = agent.run(c, q, max_rounds=rounds or agent.MAX_ROUNDS, history=past)
+    # 同一个会话串行跑：共享记忆下两个人同时问，会各自读到同一份「上文」，
+    # 然后四条消息乱序落库，模型下一轮就会看到「答在问前面」。
+    # 锁只按会话分，不同会话之间照旧并发。
+    lock = _session_lock(session)
+    with lock:
+        res = agent.run(c, q, max_rounds=rounds or agent.MAX_ROUNDS, history=past)
 
-    # 只记问答，不记工具轨迹：工具结果每条几百字，带进下一轮纯属浪费
-    if res.get("ok"):
-        memory.append(c, session, "user", q)
-        memory.append(c, session, "assistant", res.get("answer", ""))
-        memory.trim(c, session, memory.KEEP_TURNS)
+        # 只记问答，不记工具轨迹：工具结果每条几百字，带进下一轮纯属浪费
+        if res.get("ok"):
+            memory.append(c, session, "user", q)
+            memory.append(c, session, "assistant", res.get("answer", ""))
+            memory.trim(c, session, memory.KEEP_TURNS)
     res["memory_turns"] = memory.turn_count(c, session)
     res["session_new"] = fresh
     res["memory_shared"] = cfg.AGENT_SHARED_MEMORY

@@ -1015,3 +1015,19 @@ answer: 标题是「【最短路径Floyd算法详解推导过程】看完这篇�
 
 `to_bigrams` 与 FTS 索引是同一套切法（`match '"大肥" "肥鱼"'` 50 命中）；FTS 是普通表不是 external-content，`DELETE ... WHERE msg_id=?` 与插入自洽（0 孤儿）；bm25 取负排序正确；605 条向量全 float32 / 1024 维 / 已归一化；RRF 的 `1/(k+rank)` 与 `[:limit]` 无 off-by-one；`auth.verify_token` 的 HMAC + `compare_digest` + 过期检查是对的；`websearch.fetch` 的 SSRF 白名单（`websearch.py:224-232`）挡住了私网和奇怪端口。
 
+### 16.5 v0.22.2：并发与半轮（最后两条收尾）
+
+审查里第 6 条讲的是**共享记忆的并发写**，当时只改了「只收 POST」，没解决顺序问题。共享会话下两个人同时问：
+
+```
+A 读上文(第 10 轮) ──┐            ┌── 写 A 的问、写 A 的答
+B 读上文(第 10 轮) ──┴── 各自调模型 ┴── 写 B 的问、写 B 的答
+```
+
+四条消息按落库顺序排，下一轮模型就可能看到「答在问前面」。现在 `app/main.py` 加 `_session_lock(session)`（每会话一把 `threading.Lock`，表超 500 个整体清空重建，最多丢一次串行性、不丢数据），`agent.run` + 两次 `append` + `trim` 全在锁里。
+
+同一处还有个小坑：`memory.trim()` 原来按**行数**切（`LIMIT -1 OFFSET keep*2`），一旦库里存在半轮（进程在写 user 和写 assistant 之间崩掉），切完就会留下一条「assistant 凭空回答」的开头。现在切完再看保留段最老一条是不是 assistant，是就一起删。
+
+改完回归：**48/50 = 0.960、误触发 0/12、平均 0.96 轮、1297ms**（与 16.1 的 `LEXICON_TOOL=0` 一致，说明加锁没有引入额外往返）。
+
+
