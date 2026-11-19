@@ -186,6 +186,29 @@ curl -s -X POST https://zkysever.com/api/lexicon/confirm \
 `昨天有谁在群里说话` 转到第 4 次。**知识以「提示」形式注入无害，做成「工具」就有毒**——
 工具越多，模型越爱先查一遍，而这些问题本来就该直接答。开关留着，随时能复现这个结论。
 
+### 网页：`/lexicon` 审阅页（v0.22.2 加的）
+
+上面那几个 curl 是给插件和脚本用的。**人是不会天天敲 curl 的**，而 A6 的核心规矩是
+「猜出来的词不许自己生效，必须人点头」——没有页面，这条规矩就等于没落地：
+`guess` 会一直躺在库里等人，等到最后还是没人管。
+
+所以加了一个页面（`web/lexicon.html`，入口在管理面板头部「群内词库」）：
+
+| 按钮 | 调用 | 效果 |
+|---|---|---|
+| **点头** | `POST /api/lexicon/review {action:"confirm"}` → `lexicon.confirm()` | `guess` → `confirmed`，置信度 0.9，**下一句回复就能用** |
+| **改解释** | `{action:"gloss", gloss:"…"}` → `lexicon.correct()` | 改成你写的，`confirmed` + 置信度 1.0（人写的比模型可信） |
+| **驳回** | `{action:"reject"}` → `lexicon.reject()` | `rejected`，`glosses_for()` 从此不再返回它 |
+
+页面本身分五档：全部 / 待人点头 / 网上查到 / 已确认 / 已驳回，排序是
+`guess → auto → confirmed → rejected`，同档按置信度降序 —— **这一页的唯一任务是「把 guess 清干净」**，
+所以待审的必须排最前。
+
+**权限口径**：这三个接口和页面都**不在 `PUBLIC` 里**，靠的是网页口令门（`gb_gate` cookie），
+不是 `x-gb-token`。理由是它们做的是「人做决定」，而 token 是给机器用的；
+把 token 贴在浏览器里等于把机器凭据发到前端。插件那三个接口（context / observe / correct）
+反过来一律要 token，因为它们是自动跑的。
+
 ---
 
 ## 9. 实测记录（2026-11-19）

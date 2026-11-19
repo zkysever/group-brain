@@ -709,6 +709,74 @@ def out_file(name: str, k: str = Query("", description="OUT_TOKEN，投稿页 fe
     )
 
 
+@app.get("/lexicon", response_class=HTMLResponse)
+def lexicon_page() -> str:
+    """群内词库审阅页：猜出来的词在这里点头/驳回/改。
+
+    为什么要有这一页：`confirm`/`reject` 之前只有 token 接口，插件够用、人没法用。
+    而 A6 的规矩恰恰是「猜的词不许自己生效，要人点头」——没有页面，这条规矩等于没落地。
+    """
+    page = WEB_DIR / "lexicon.html"
+    if not page.exists():
+        raise HTTPException(500, "web/lexicon.html 不见了")
+    return page.read_text(encoding="utf-8")
+
+
+@app.get("/api/lexicon/rows")
+def api_lexicon_rows(status: str = Query("", description="空=全部；guess/auto/confirmed/rejected")):
+    """词库列表（走口令门，不需要 x-gb-token —— 这是给人看的）。"""
+    c = conn()
+    rows = lexicon.all_rows(c)
+    out = []
+    for r in rows:
+        st = r["status"]
+        if status and st != status:
+            continue
+        out.append(
+            {
+                "term": r["term"],
+                "gloss": r["gloss"] or "",
+                "kind": r["kind"] or "",
+                "source": r["source"] or "",
+                "confidence": round(float(r["confidence"] or 0), 2),
+                "status": st,
+                "hits": int(r["hits"] or 0),
+                "asked": int(r["asked"] or 0),
+                "updated": r["updated"] or "",
+            }
+        )
+    # 待审的排前面：这一页的唯一任务是「把 guess 清干净」
+    order = {"guess": 0, "auto": 1, "confirmed": 2, "rejected": 3}
+    out.sort(key=lambda x: (order.get(x["status"], 9), -x["confidence"], x["term"]))
+    return {"ok": True, "stats": lexicon.stats(c), "items": out}
+
+
+@app.post("/api/lexicon/review")
+async def api_lexicon_review(request: Request):
+    """人在页面上做的三个动作：点头 / 驳回 / 改解释。"""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return {"ok": False, "error": "body 不是 JSON"}
+    term = str(body.get("term") or "").strip()
+    action = str(body.get("action") or "").strip()
+    gloss = str(body.get("gloss") or "").strip()
+    if not term or action not in ("confirm", "reject", "gloss"):
+        return {"ok": False, "error": "term / action 不对"}
+    c = conn()
+    if action == "confirm":
+        n = lexicon.confirm(c, term, gloss)
+    elif action == "reject":
+        n = lexicon.reject(c, term)
+    else:
+        n = lexicon.correct(c, term, gloss)
+    row = lexicon.get(c, term)
+    return {"ok": bool(n), "n": n, "term": term,
+            "item": None if not row else {"term": row["term"], "gloss": row["gloss"],
+                                          "status": row["status"],
+                                          "confidence": round(float(row["confidence"] or 0), 2)}}
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page() -> str:
     """v0.7 管理面板。薄薄一层：点按钮 = 在服务器上跑一次 scripts/ 里的脚本。"""

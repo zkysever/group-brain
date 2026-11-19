@@ -55,7 +55,7 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | B 站选片：先看简介+热评（免费）打分，值得才深读页面（每天≤3 次），08:00–22:59 每小时最多推 1 条到 QQ 私聊 | ✅ v0.19，`app/curator.py` + `tools/astrbot_plugin_qq_curator/`，见 `docs/curator.md` |
 | 视频流水线 + 投稿：文案 → 配音/字幕/封面 → 推 QQ 给他过目 → bsk 驱动他的浏览器投稿 | ✅ v0.20，`tools/make_video.py` / `make_cover.py` / `scripts/prep_next.py` / `tools/publish_bsk.py`，见 `docs/publish.md`；EP01=BV1F6sN6mEdm、EP02=BV1FDsu64EMn、EP03=BV1pgsm6MEeJ |
 | 抽象日报：12 个关键词搜 200+ 候选 → 模型按「猎奇抽象」排序 → 每天 12:00 只发 10–20 条链接到 QQ | ✅ v0.21，`app/weird.py` + `scripts/weird_run.py`，见 `docs/weird.md` |
-| 群内词库（A6）：群里没听懂的说法它自己上网查明白并记住，回复时直接用 | ✅ v0.22，`app/lexicon.py` + `tools/astrbot_plugin_gb_lexicon/`，见 `docs/lexicon.md`；每天 04:40 主动挖词 |
+| 群内词库（A6）：群里没听懂的说法它自己上网查明白并记住，回复时直接用 | ✅ v0.22，`app/lexicon.py` + `tools/astrbot_plugin_gb_lexicon/`，见 `docs/lexicon.md`；每天 04:40 主动挖词；猜出来的词在 `/lexicon` 页面点头才生效（v0.22.2） |
 | 代码审查修复 24 条：口令门语义反了、`/out/` 匿名可读、`.env` 空值崩启动、工具参数无下界、health 恒 200、时区错 8 小时、工具重复调用、向量缓存不失效、FTS 的 AND 短路、全角数字查不到 | ✅ v0.22.1，清单见 `EVAL.md` 第十六节 |
 
 ---
@@ -119,6 +119,7 @@ group-brain/
 │  ├─ login.html         口令页
 │  ├─ portfolio.html     作品集页（公开，不要口令）
 │  ├─ coach.html         学习教练：选一周、生成、看事实清单
+│  ├─ lexicon.html       群内词库审阅页：猜出来的词点头/改/驳回（v0.22.2）
 │  └─ admin.html        管理面板（轮询任务状态、看日志）
 ├─ docs/
 │  ├─ deploy.md          部署 + 事故复盘 + SSH 三端口

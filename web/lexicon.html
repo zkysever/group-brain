@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>群内词库 · group-brain</title>
+<style>
+  :root{--bg:#0f1115;--card:#181b22;--line:#262b36;--dim:#8b93a7;--text:#e6e9f0;--acc:#6a9cff;--ok:#3ddc97;--bad:#ff6b6b;--warn:#ffc857}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 -apple-system,"Segoe UI",system-ui,"Microsoft YaHei",sans-serif}
+  .wrap{max-width:900px;margin:0 auto;padding:28px 18px 60px}
+  h1{font-size:26px;margin:0 0 6px}
+  .badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;background:#233;color:var(--acc);vertical-align:middle;margin-left:6px}
+  .sub{color:var(--dim);margin:0 0 18px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .stat b{display:block;font-size:22px;margin-top:2px}
+  .stat span{color:var(--dim);font-size:13px}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+  .tabs button{background:transparent;border:1px solid var(--line);color:var(--dim);padding:5px 12px;border-radius:999px;cursor:pointer;font-size:13px}
+  .tabs button.on{border-color:var(--acc);color:var(--acc)}
+  .item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px}
+  .row1{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .term{font-size:17px;font-weight:600}
+  .tag{font-size:12px;padding:1px 7px;border-radius:6px;background:#222833;color:var(--dim)}
+  .tag.guess{background:#3a2f1a;color:var(--warn)}
+  .tag.auto{background:#1d2a3a;color:var(--acc)}
+  .tag.confirmed{background:#16301f;color:var(--ok)}
+  .tag.rejected{background:#331b1b;color:var(--bad)}
+  .gloss{margin:8px 0 0;color:#cfd6e6}
+  .meta{color:var(--dim);font-size:12px;margin-top:6px}
+  .acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .acts button{border:1px solid var(--line);background:#1b2029;color:var(--text);padding:5px 11px;border-radius:8px;cursor:pointer;font-size:13px}
+  .acts button.ok{border-color:#265;color:var(--ok)}
+  .acts button.bad{border-color:#522;color:var(--bad)}
+  .acts button:hover{filter:brightness(1.25)}
+  .empty{color:var(--dim);text-align:center;padding:30px 0}
+  .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#222a36;border:1px solid var(--line);
+         padding:9px 16px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.on{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>群内词库 <span class="badge">A6</span></h1>
+  <p class="sub">群里那些「圈外人看不懂的说法」在这儿。它会自己查、自己猜；<b>猜出来的不许直接用，得你点头</b>。</p>
+
+  <div class="grid" id="stats"></div>
+
+  <div class="tabs" id="tabs">
+    <button data-s="" class="on">全部</button>
+    <button data-s="guess">待人点头</button>
+    <button data-s="auto">网上查到</button>
+    <button data-s="confirmed">已确认</button>
+    <button data-s="rejected">已驳回</button>
+  </div>
+
+  <div id="list"><div class="empty">加载中…</div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let FILTER = '';
+const toast = (m) => {
+  const t = document.getElementById('toast');
+  t.textContent = m; t.classList.add('on');
+  setTimeout(() => t.classList.remove('on'), 1600);
+};
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function renderStats(st) {
+  const box = document.getElementById('stats');
+  box.innerHTML = [
+    ['词条', (st && st.terms) || 0],
+    ['今天新学', (st && st.learned_today) || (st && st.new_today) || 0],
+    ['待人点头', (st && st.guess) || 0],
+    ['被用过', (st && st.hits) || 0],
+  ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
+}
+
+function itemHTML(x) {
+  const cls = x.status === 'guess' ? 'guess' : x.status === 'auto' ? 'auto'
+            : x.status === 'confirmed' ? 'confirmed' : x.status === 'rejected' ? 'rejected' : '';
+  const src = { web: '网上查的', group: '只凭原句猜的', human: '你改的' }[x.source] || x.source || '';
+  const acts = [];
+  if (x.status !== 'confirmed') acts.push(`<button class="ok" data-a="confirm" data-t="${esc(x.term)}">点头</button>`);
+  acts.push(`<button data-a="gloss" data-t="${esc(x.term)}">改解释</button>`);
+  if (x.status !== 'rejected') acts.push(`<button class="bad" data-a="reject" data-t="${esc(x.term)}">驳回</button>`);
+  return `<div class="item">
+    <div class="row1">
+      <span class="term">${esc(x.term)}</span>
+      <span class="tag ${cls}">${esc(x.status)}</span>
+      ${x.kind ? `<span class="tag">${esc(x.kind)}</span>` : ''}
+      <span class="tag">${esc(src)}</span>
+      <span class="tag">conf ${x.confidence}</span>
+    </div>
+    <p class="gloss">${esc(x.gloss) || '<span style="color:#6b7280">还没有解释</span>'}</p>
+    <div class="meta">用过 ${x.hits} 次 · 查过 ${x.asked} 次 · 更新于 ${esc((x.updated || '').slice(0, 16))}</div>
+    <div class="acts">${acts.join('')}</div>
+  </div>`;
+}
+
+async function load() {
+  const q = FILTER ? '?status=' + encodeURIComponent(FILTER) : '';
+  const r = await fetch('/api/lexicon/rows' + q);
+  if (r.status === 401) { location.href = '/login'; return; }
+  const d = await r.json();
+  renderStats(d.stats);
+  const list = document.getElementById('list');
+  if (!d.items.length) { list.innerHTML = '<div class="empty">这一类还没有词。</div>'; return; }
+  list.innerHTML = d.items.map(itemHTML).join('');
+}
+
+async function act(term, action, gloss) {
+  const body = { term, action };
+  if (gloss != null) body.gloss = gloss;
+  const r = await fetch('/api/lexicon/review', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (r.status === 401) { location.href = '/login'; return; }
+  const d = await r.json();
+  if (!d.ok) { toast(d.error || '没成'); return; }
+  toast(action === 'confirm' ? '已点头，之后回复里能用它了'
+        : action === 'reject' ? '已驳回，不再用它'
+        : '解释已更新');
+  load();
+}
+
+document.getElementById('list').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-a]');
+  if (!b) return;
+  const term = b.dataset.t, action = b.dataset.a;
+  if (action === 'gloss') {
+    const v = prompt(`「${term}」的解释改成什么？`, '');
+    if (v == null) return;
+    act(term, 'gloss', v.trim());
+    return;
+  }
+  act(term, action);
+});
+
+document.getElementById('tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-s]');
+  if (!b) return;
+  FILTER = b.dataset.s;
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  load();
+});
+
+load();
+</script>
+</body>
+</html>
