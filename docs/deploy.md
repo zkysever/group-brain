@@ -284,7 +284,14 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 30 3 * * * cd /opt/group-brain && .venv/bin/python scripts/backup_db.py >> /var/log/gb-backup.log 2>&1
 0 9 * * 1 bash /opt/group-brain/scripts/cron_coach.sh >> /var/log/gb-coach.log 2>&1
 0 4 1 * * cd /opt/group-brain && MEME_PACKS=/opt/group-brain/meme-packs .venv/bin/python scripts/restore_check.py >> /var/log/gb-restore.log 2>&1
+40 4 * * * cd /opt/group-brain && set -a && . ./.env && set +a && .venv/bin/python scripts/learn_terms.py >> /var/log/gb-learn.log 2>&1
+0 8-22 * * * cd /opt/group-brain && set -a && . ./.env && set +a && .venv/bin/python scripts/curator_run.py >> /var/log/gb-curator.log 2>&1
+0 12 * * * cd /opt/group-brain && set -a && . ./.env && set +a && .venv/bin/python scripts/weird_run.py >> /var/log/gb-weird.log 2>&1
 ```
+
+**04:40 那条是 A6 主动挖词**（v0.22）：群聊里没人教它，它自己从最近的聊天里挑「圈外人看不懂的说法」，
+去查、去记；猜出来的词只进待审（`status=guess`，不参与回复），要人 `confirm` 才生效。
+**12:00 那条是抽象日报**（v0.21），和 13:00 的备片任务不是一回事：12:00 只发链接，13:00 发视频文件等他点头。
 
 第二条是「每周一 09:00 自动生成上一周的周报」，见下面「定时任务」一节。
 第 25 分钟抽事实草稿、第 27 分钟自动分流（v0.16 加的）：机器只处理它确定的那批——
