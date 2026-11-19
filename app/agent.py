@@ -21,14 +21,16 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 
 from . import config as cfg
 from . import facts
 from . import learn
+from . import lexicon
 from . import router
 from . import search
 from . import websearch
@@ -160,6 +162,26 @@ TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "lookup_lexicon",
+            "description": (
+                "查群里的新词、梗、缩写、外号是什么意思。这个库是它自己从群里学的："
+                "碰到没见过的词就调它；库里没有时它会**顺手上网查一次并记住**。"
+                "问「XX 是什么意思」「XX 是谁的外号」先调它，再考虑 web_search。"
+                "它只解释词，不解释某句话——问原话还是用 search_memory。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "term": {"type": "string", "description": "要查的词本身，别带问句"},
+                    "context": {"type": "string", "description": "可选：这个词出现的那句话，帮助判断它在这个群里的意思"},
+                },
+                "required": ["term"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_time",
             "description": "取当前时间（服务器所在时区，UTC+8）。用户问今天几号、现在几点、星期几时调用。",
             "parameters": {"type": "object", "properties": {}},
@@ -172,17 +194,43 @@ def available() -> bool:
     return bool(cfg.DEEPSEEK_KEY)
 
 
+def _now_cn() -> datetime:
+    """北京时间。服务器 TZ 常常是 UTC，`astimezone()` 会给错日期/星期。
+
+    优先用 zoneinfo（Linux 自带 tzdata）；Windows 上没装 tzdata 包会抛
+    ZoneInfoNotFoundError，退回固定 +8（中国不用夏令时，固定偏移没有坑）。
+    """
+    try:
+        return datetime.now(ZoneInfo("Asia/Shanghai"))
+    except Exception:  # noqa: BLE001
+        return datetime.now(timezone(timedelta(hours=8)))
+
+
+def _tools_for_this_run() -> list[dict[str, Any]]:
+    """按开关裁工具表。
+
+    A6 接进来之后服务器评测从 0.960/0 掉到 0.900/0.167——多一个工具，
+    模型就多一次「我该不该查」的犹豫，也更容易绕圈（三条失败都是调了 3 次）。
+    所以拆成两个旋钮：LEXICON_HINT（白送上下文，默认开）和
+    LEXICON_TOOL（主动查词，默认关）。关掉工具等于回到原来的六个。
+    """
+    if cfg.LEXICON_TOOL:
+        return TOOLS
+    return [t for t in TOOLS if (t.get("function") or {}).get("name") != "lookup_lexicon"]
+
+
 def _chat(messages: list[dict[str, Any]]) -> dict[str, Any]:
     """打一次 DeepSeek。带 tools 就是「你先想想要不要调工具」。
 
     会重试：跑评测时遇到过 `SSLError: Max retries exceeded`——国内到 api.deepseek.com
     偶尔就这么一下。一次抖动不该让整条对话报错，所以 3 次、指数退避。
-    注意只重试网络层和 5xx/429，别把 400（参数错）也重试，那样只会更快地把额度烧完。
+    注意只重试网络层和 5xx/429；400（参数错、消息顺序坏了）重试三次只是
+    「多烧 4.5 秒 + 多占一个工作线程」，然后把同一个错误再抛一遍。
     """
     payload = {
         "model": cfg.DEEPSEEK_MODEL,
         "messages": messages,
-        "tools": TOOLS,
+        "tools": _tools_for_this_run(),
         "tool_choice": "auto",
         "temperature": 0.3,
     }
@@ -196,7 +244,16 @@ def _chat(messages: list[dict[str, Any]]) -> dict[str, Any]:
                 raise requests.HTTPError(f"上游 {r.status_code}: {r.text[:120]}")
             r.raise_for_status()
             return r.json()
-        except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as e:
+        except requests.HTTPError as e:
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            # 只重试「上游可恢复」的；4xx 参数类错误直接抛，别把额度烧完
+            if code is not None and code not in (429, 500, 502, 503, 504):
+                raise
+            last = e
+            if attempt == 2:
+                break
+            time.sleep(1.5 * (attempt + 1))
+        except (requests.ConnectionError, requests.Timeout) as e:
             last = e
             if attempt == 2:
                 break
@@ -224,30 +281,47 @@ def _trim_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def _run_tool(name: str, args: dict[str, Any], conn) -> tuple[str, dict[str, Any]]:
+def _lim(v: Any, default: int, hi: int) -> int:
+    """把模型给的 limit 洗成一个安全的整数：非法回落、下界 1、上界 hi。
+
+    以前是 `min(int(args.get("limit") or MAX_HITS), 10)`，只有上界：
+    `{"limit": "五张"}` 直接 ValueError → 整个请求 500；
+    `{"limit": -1}` 会一路传进 SQLite，而**负 LIMIT 等于不限制**，
+    再加上 _trim_hits 只截单条长度不截条数，一次就能把上下文顶爆。
+    """
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        n = default
+    return max(1, min(n, hi))
+
+
+def _run_tool_raw(name: str, args: dict[str, Any], conn) -> tuple[str, dict[str, Any]]:
     """执行一个工具，返回 (喂回模型的字符串, 给前端看的抽屉条目)。"""
     t0 = time.perf_counter()
     if name == "search_memory":
         q = str(args.get("query") or "").strip()
-        limit = min(int(args.get("limit") or MAX_HITS), 10)
+        limit = _lim(args.get("limit") or MAX_HITS, MAX_HITS, 10)
         res = search.search_all(conn, q, "message", limit, "auto")
         hits = _trim_hits(res["hits"])
         payload = {"query": q, "count": len(hits), "hits": hits}
         note = {"tool": name, "args": {"query": q, "limit": limit}, "n": len(hits), "mode": res["mode"]}
     elif name == "search_meme":
         q = str(args.get("query") or "").strip()
-        limit = min(int(args.get("limit") or 3), 5)
+        limit = _lim(args.get("limit") or 3, 3, 5)
         res = search.search_all(conn, q, "meme", limit, "auto")
         hits = _trim_hits(res["hits"])
         payload = {"query": q, "count": len(hits), "hits": hits}
         note = {"tool": name, "args": {"query": q, "limit": limit}, "n": len(hits), "mode": res["mode"]}
     elif name == "get_time":
-        now = datetime.now().astimezone()
-        payload = {"now": now.strftime("%Y-%m-%d %H:%M:%S"), "weekday": "一二三四五六日"[now.weekday()], "tz": str(now.tzinfo)}
+        # 服务器 TZ 常常是 UTC：`datetime.now().astimezone()` 在北京时间 00:00–08:00
+        # 会给出前一天的日期和星期，而工具描述承诺的是 UTC+8。直接钉死时区。
+        now = _now_cn()
+        payload = {"now": now.strftime("%Y-%m-%d %H:%M:%S"), "weekday": "一二三四五六日"[now.weekday()], "tz": "UTC+8"}
         note = {"tool": name, "args": {}, "n": 1, "mode": "-"}
     elif name == "web_search":
         q = str(args.get("query") or "").strip()
-        limit = min(int(args.get("limit") or 4), 8)
+        limit = _lim(args.get("limit") or 4, 4, 8)
         rows = websearch.search(conn, q, limit)
         hits = [
             {
@@ -284,9 +358,44 @@ def _run_tool(name: str, args: dict[str, Any], conn) -> tuple[str, dict[str, Any
             n = 0
         note = {"tool": name, "args": {"url": u[:80]}, "n": n, "mode": "web",
                 "via": page.get("via") if n else None}
+    elif name == "lookup_lexicon":
+        term = str(args.get("term") or "").strip()[:20]
+        row = lexicon.get(conn, term)
+        if row:
+            payload = {
+                "term": row["term"],
+                "gloss": row["gloss"],
+                "kind": row["kind"],
+                "confidence": round(float(row["confidence"]), 2),
+                "source": row["source"],
+            }
+            n = 1
+        else:
+            # 库里没有：现场学一次（上网搜 + 写解释）。学不会就直说，
+            # 让模型自己决定是再 web_search 还是承认不知道。
+            try:
+                learned = lexicon.lookup(conn, term, str(args.get("context") or "")[:60])
+            except Exception:  # noqa: BLE001
+                learned = None
+            if learned:
+                payload = {
+                    "term": learned["term"],
+                    "gloss": learned["gloss"],
+                    "kind": learned["kind"],
+                    "confidence": round(float(learned["confidence"]), 2),
+                    "source": "web(刚学的)",
+                }
+                n = 1
+            else:
+                payload = {
+                    "term": term,
+                    "note": "词库里没有，上网也没弄明白。要么用 web_search 再试，要么直接说不知道。",
+                }
+                n = 0
+        note = {"tool": name, "args": {"term": term}, "n": n, "mode": "lexicon"}
     elif name == "search_facts":
         q = str(args.get("query") or "").strip()
-        limit = min(int(args.get("limit") or MAX_HITS), 10)
+        limit = _lim(args.get("limit") or MAX_HITS, MAX_HITS, 10)
         rows = facts.search(conn, q, limit)
         # 事实条目本来就短（subject + claim 一行），不用像消息那样截断太狠
         hits = [
@@ -312,6 +421,71 @@ def _run_tool(name: str, args: dict[str, Any], conn) -> tuple[str, dict[str, Any
 
     note["ms"] = round((time.perf_counter() - t0) * 1000, 1)
     return json.dumps(payload, ensure_ascii=False), note
+
+
+def _call_key(name: str, args: dict[str, Any]) -> str:
+    return name + "|" + json.dumps(args, sort_keys=True, ensure_ascii=False)
+
+
+def _run_tool(
+    name: str,
+    args: Any,
+    conn,
+    state: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """_run_tool_raw 的安全外壳：去重、限次、兜异常。
+
+    三件事都是评测里真实踩出来的：
+    - **去重**：开了规则前置之后，模型紧接着又调一次同名同参数（很常见），
+      等于多花一整轮 token 和 1.5 秒；router 的 docstring 早就承诺「不许重复调
+      同一次检索」，但一直没有实现。
+    - **限次**：`fetch_url` 的描述写着「一次对话最多抓 2 个页面」，之前没有计数器，
+      模型能一口气抓四五个（每个都可能触发真浏览器兜底，很贵）。
+    - **兜异常**：模型给个坏参数（`{"limit":"五张"}`）以前直接 500，
+      把已经花掉的检索和 token 全白费；现在变成一条 error 结果喂回去。
+    """
+    if not isinstance(args, dict):
+        args = {}
+    t0 = time.perf_counter()
+    key = _call_key(name, args)
+    if state is not None:
+        if key in state["seen"]:
+            note = {"tool": name, "args": args, "n": 0, "mode": "dedup", "ms": 0.0,
+                    "note": "重复调用，已跳过"}
+            return (
+                json.dumps(
+                    {"note": "这个检索刚刚做过，结果就在上一条工具消息里，直接用它回答，别再调一次。"},
+                    ensure_ascii=False,
+                ),
+                note,
+            )
+        state["seen"].add(key)
+        if name == "fetch_url":
+            state["fetches"] += 1
+            if state["fetches"] > 2:
+                note = {"tool": name, "args": args, "n": 0, "mode": "limit", "ms": 0.0,
+                        "note": "超过 2 页上限"}
+                return (
+                    json.dumps(
+                        {"note": "这次对话已经抓过 2 个页面了，改用已有结果回答，或者直接给链接。"},
+                        ensure_ascii=False,
+                    ),
+                    note,
+                )
+    try:
+        return _run_tool_raw(name, args, conn)
+    except Exception as e:  # noqa: BLE001 —— 工具坏不能把整条对话打断
+        print(f"[warn] 工具 {name} 失败: {type(e).__name__}: {e}", flush=True)
+        note = {"tool": name, "args": args, "n": 0, "mode": "error",
+                "ms": round((time.perf_counter() - t0) * 1000, 1),
+                "error": f"{type(e).__name__}: {e}"}
+        return (
+            json.dumps(
+                {"error": f"这个工具这次失败了（{type(e).__name__}）。换一种方式，或直接说做不到。"},
+                ensure_ascii=False,
+            ),
+            note,
+        )
 
 
 def _norm_history(history: Any) -> list[dict[str, str]]:
@@ -385,6 +559,15 @@ def run(conn, question: str, max_rounds: int = MAX_ROUNDS, history: Any = None) 
         }
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM}]
+    # 群内词库（A6）：这句话里如果有它自学过的词，直接把解释摆在最前面。
+    # 不做成工具：模型得先「知道自己不知道」才会去调，而这里它本来就不知道，
+    # 反而不会调。词库是白送的上下文，不是它要争取的东西。
+    try:
+        lex_hint = lexicon.hint(conn, question) if cfg.LEXICON_HINT else ""
+    except Exception:  # noqa: BLE001 —— 词库坏了不该让整个回答挂掉
+        lex_hint = ""
+    if lex_hint:
+        messages.append({"role": "system", "content": lex_hint})
     if past:
         messages.append({"role": "system", "content": "下面是刚才的对话（「刚才那句」「上一条」指的是它）："})
         messages.extend(past)
@@ -392,6 +575,8 @@ def run(conn, question: str, max_rounds: int = MAX_ROUNDS, history: Any = None) 
     trace: list[dict[str, Any]] = []
     answer = ""
     prefetched: list[str] = []
+    # 一次对话里的工具调用状态：去重 + 抓页计数（见 _run_tool）
+    state: dict[str, Any] = {"seen": set(), "fetches": 0}
 
     # 规则前置：有把握就先替它把工具跑了，省掉「决定要不要调」那一次往返。
     #
@@ -407,7 +592,7 @@ def run(conn, question: str, max_rounds: int = MAX_ROUNDS, history: Any = None) 
             tool_msgs: list[dict[str, Any]] = []
             for idx, item in enumerate(plan, 1):
                 cid = f"prefetch_{idx}"
-                result, note = _run_tool(item["name"], item["args"], conn)
+                result, note = _run_tool(item["name"], item["args"], conn, state)
                 note["prefetch"] = True
                 trace.append(note)
                 prefetched.append(item["name"])
@@ -466,7 +651,7 @@ def run(conn, question: str, max_rounds: int = MAX_ROUNDS, history: Any = None) 
                 args = json.loads(fn.get("arguments") or "{}")
             except json.JSONDecodeError:
                 args = {}
-            result, note = _run_tool(name, args, conn)
+            result, note = _run_tool(name, args, conn, state)
             trace.append(note)
             messages.append({"role": "tool", "tool_call_id": c.get("id"), "content": result})
 

@@ -1,6 +1,6 @@
 # group-brain
 
-群聊记忆体 · v0.16
+群聊记忆体 · v0.22.1
 
 把 AstrBot 里攒下来的群聊记录 + 两套表情包，变成**一条能搜的索引**，
 再往上加一层「模型自己决定查不查」的 Agent。在线地址：**https://zkysever.com**
@@ -55,6 +55,8 @@ Agent = 把检索包成三个工具（查聊天 / 找表情 / 问时间）交给
 | B 站选片：先看简介+热评（免费）打分，值得才深读页面（每天≤3 次），08:00–22:59 每小时最多推 1 条到 QQ 私聊 | ✅ v0.19，`app/curator.py` + `tools/astrbot_plugin_qq_curator/`，见 `docs/curator.md` |
 | 视频流水线 + 投稿：文案 → 配音/字幕/封面 → 推 QQ 给他过目 → bsk 驱动他的浏览器投稿 | ✅ v0.20，`tools/make_video.py` / `make_cover.py` / `scripts/prep_next.py` / `tools/publish_bsk.py`，见 `docs/publish.md`；EP01=BV1F6sN6mEdm、EP02=BV1FDsu64EMn、EP03=BV1pgsm6MEeJ |
 | 抽象日报：12 个关键词搜 200+ 候选 → 模型按「猎奇抽象」排序 → 每天 12:00 只发 10–20 条链接到 QQ | ✅ v0.21，`app/weird.py` + `scripts/weird_run.py`，见 `docs/weird.md` |
+| 群内词库（A6）：群里没听懂的说法它自己上网查明白并记住，回复时直接用 | ✅ v0.22，`app/lexicon.py` + `tools/astrbot_plugin_gb_lexicon/`，见 `docs/lexicon.md`；每天 04:40 主动挖词 |
+| 代码审查修复 24 条：口令门语义反了、`/out/` 匿名可读、`.env` 空值崩启动、工具参数无下界、health 恒 200、时区错 8 小时、工具重复调用、向量缓存不失效、FTS 的 AND 短路、全角数字查不到 | ✅ v0.22.1，清单见 `EVAL.md` 第十六节 |
 
 ---
 
@@ -70,13 +72,14 @@ group-brain/
 │  ├─ search.py          FTS5 + 向量，四路 RRF 融合
 │  ├─ vectors.py         向量存取与暴力点乘（605 条不值得上向量库）
 │  ├─ embeddings.py      bge-m3 接口
-│  ├─ agent.py           A2：六个工具（记忆/表情包/时间/事实/联网搜索/抓网页）+ 最多 3 轮的调用循环
+│  ├─ agent.py           A2：七个工具（记忆/表情包/时间/事实/联网搜索/抓网页/查词）+ 最多 3 轮的调用循环
 │  ├─ memory.py          A2 的记忆：按 session 存服务端（刷新/换设备都还在）
 │  ├─ learn.py           纠错记忆：用户教过的问法→答案，命中就原样答（不让模型改写）
 │  ├─ facts.py           事实记忆：人工点头过的「谁是什么样」，只索引 approved；`score()` 给待审打分供自动审阅
 │  ├─ websearch.py       联网检索：Bing 中文结果页（可选 Tavily）+ `web_cache` 缓存 + SSRF 防护的抓页（v0.18）
 │  ├─ curator.py         B 站选片：热门列表 → 热评打分 → 值得才深读 → 写 outbox 给 AstrBot 推 QQ（v0.19）
 │  ├─ weird.py           抽象日报：关键词搜候选 → 模型按「猎奇」排序 → 每天 12:00 只发链接（v0.21）
+│  ├─ lexicon.py         群内词库：判词 → 上网查 → 存一句解释，回复时拼进 prompt（v0.22）
 │  ├─ expand.py          查询扩展（v0.16 实验，实测无效，默认关）
 │  ├─ ...（消息句意走到 scripts/gloss_messages.py，v0.17 实验，默认关）
 │  ├─ router.py          A3 落地：规则前置 + 自学规则（有把握就先跑工具，省一次往返）
@@ -107,6 +110,7 @@ group-brain/
 │  ├─ pull_backup.ps1    把服务器上最新备份拉到本机（备份不能和库放同一块盘）
 │  ├─ selftest.py        CI 用的自检：临时库跑一遍主链路，不碰你的数据
 │  ├─ curator_run.py     手动跑一轮 B 站选片（面板按钮 / cron 入口）
+│  ├─ learn_terms.py     每日挖词：从群聊挑「圈外人看不懂」的词，上网查明白（v0.22）
 │  ├─ weird_run.py       抽象日报：每天 12:00 一批 10–20 条链接（面板按钮 / cron 入口）
 │  └─ db_maintenance.py  WAL 合并 / VACUUM
 ├─ web/

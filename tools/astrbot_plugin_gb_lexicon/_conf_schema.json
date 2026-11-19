@@ -1,0 +1,37 @@
+{
+  "enabled": {
+    "type": "bool",
+    "description": "启用群内自学",
+    "default": true
+  },
+  "brain_url": {
+    "type": "string",
+    "description": "group-brain 地址（AstrBot 在容器里，访问宿主用隧道域名）",
+    "default": "https://zkysever.com"
+  },
+  "token": {
+    "type": "string",
+    "description": "接口 token（留空则读 /AstrBot/data/gb_lexicon_token.txt 或环境变量 GB_LEXICON_TOKEN）",
+    "default": ""
+  },
+  "min_lines": {
+    "type": "int",
+    "description": "攒够多少条才上报一次",
+    "default": 10
+  },
+  "interval_seconds": {
+    "type": "int",
+    "description": "两次上报之间至少隔多少秒",
+    "default": 300
+  },
+  "daily_cap": {
+    "type": "int",
+    "description": "每天最多上报几次（判词要调模型，别无限跑）",
+    "default": 120
+  },
+  "quiet_hours": {
+    "type": "string",
+    "description": "夜里不上报的时段，比如 1-8",
+    "default": "1-8"
+  }
+}

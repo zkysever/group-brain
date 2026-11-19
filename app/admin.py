@@ -62,6 +62,15 @@ TASKS: dict[str, dict] = {
                 "想提前看一眼带 --dry（只挑不发）；今天已经推过还想再来一批带 --force。",
         "timeout": 900,
     },
+    "learn": {
+        "label": "挖一轮群内词（会调接口）",
+        "script": "learn_terms.py",
+        "args": [],
+        "cost": "约 30–60 秒：1 次判词 + 最多 8 次搜索/解释，几毛钱",
+        "note": "从最近两天的群聊里挑几个「圈外人看不懂」的说法，上网查明白写进词库。"
+                "每天 04:40 自动跑；只想看它想学什么用 --dry（不写库）。",
+        "timeout": 900,
+    },
     "fts": {
         "label": "重建关键词索引",
         "script": "rebuild_fts.py",
@@ -219,6 +228,20 @@ def _curator_stats(conn) -> dict:
         return {"today": 0, "deep_left": 0, "deep_per_day": 0, "pending": 0}
 
 
+def _lexicon_stats(conn) -> dict:
+    """群内词库：学了多少词、今天学了几个、最近一次失败是什么（排障用）。"""
+    try:
+        n = conn.execute("SELECT count(*) c FROM lexicon").fetchone()["c"]
+        today = conn.execute(
+            "SELECT count(*) c FROM lexicon_jobs WHERE ok = 1 AND substr(ts,1,10) = ?",
+            (__import__("time").strftime("%Y-%m-%d"),),
+        ).fetchone()["c"]
+        used = conn.execute("SELECT coalesce(sum(hits), 0) s FROM lexicon").fetchone()["s"]
+        return {"terms": int(n or 0), "learned_today": int(today or 0), "hits": int(used or 0)}
+    except Exception:                            # noqa: BLE001
+        return {"terms": 0, "learned_today": 0, "hits": 0}
+
+
 def state(conn) -> dict:
     """面板上要显示的全部东西，一次拿全，别让前端发一堆请求。"""
     n_msg = conn.execute("SELECT count(*) c FROM messages").fetchone()["c"]
@@ -265,6 +288,7 @@ def state(conn) -> dict:
             "facts": _facts_stats(conn),
             "web": _web_stats(conn),
             "curator": _curator_stats(conn),
+            "lexicon": _lexicon_stats(conn),
         },
         "files": {
             "db": fsize(DB_PATH),

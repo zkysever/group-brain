@@ -35,11 +35,17 @@ def _search_fts(
     query: str,
     limit: int,
 ) -> list[tuple[int, float]]:
-    """先 AND 求精确，命中太少再 OR 放宽。返回 [(原始id, 正分数)]。"""
+    """先 AND 求精确，**不够 limit 条**再 OR 放宽。返回 [(原始id, 正分数)]。
+
+    老实现是 `if rows:` —— 只要 AND 命中 1 行就直接返回，于是关键词这一路
+    只剩 1 个候选，`deep=max(limit*4,20)` 完全用不上（实测 8 条真实查询里
+    AND 全是 0 行，那个分支几乎永远白跑）。改成「够数才提前返回、不够就合并」。
+    """
     tokens = to_bigrams(query).split()
     if not tokens:
         return []
 
+    merged: dict[int, float] = {}
     for joiner in (" ", " OR "):
         expr = _fts_query(tokens, joiner)
         if not expr:
@@ -51,12 +57,25 @@ def _search_fts(
                 f"ORDER BY rank LIMIT ?",
                 (expr, limit),
             ).fetchall()
-        except sqlite3.OperationalError:
-            rows = []
-        if rows:
-            # bm25 是负数，越负越相关；取反变成正分
-            return [(int(r["oid"]), -float(r["rank"])) for r in rows]
-    return []
+        except sqlite3.OperationalError as e:
+            # 只吞「索引表还没建」这一种；database is locked / FTS 损坏 应该报出来，
+            # 否则全都变成「HTTP 200 + 0 条」，看起来像「群里没说过这话」。
+            if "no such table" in str(e):
+                return list(merged.items())
+            raise
+        for r in rows:
+            oid = int(r["oid"])
+            score = -float(r["rank"])  # bm25 是负数，越负越相关
+            if oid not in merged or score > merged[oid]:
+                merged[oid] = score
+        if len(merged) >= limit:
+            break
+    return sorted(merged.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+
+
+def _like_escape(q: str) -> str:
+    """LIKE 里 % 和 _ 是通配符：`?q=%` 会匹配到所有行，`a_b` 会匹配任意字符。"""
+    return q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _like_fallback(
@@ -72,8 +91,8 @@ def _like_fallback(
         return []
     rows = conn.execute(
         f"SELECT id, {text_col} AS t FROM {table} "
-        f"WHERE {text_col} LIKE ? ORDER BY id DESC LIMIT ?",
-        (f"%{q}%", limit),
+        f"WHERE {text_col} LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ?",
+        (f"%{_like_escape(q)}%", limit),
     ).fetchall()
     return [(int(r["id"]), 0.5) for r in rows]
 
@@ -93,9 +112,9 @@ def _kw_memes(conn, query: str, limit: int) -> list[tuple[int, float]]:
     if not q:
         return []
     rows = conn.execute(
-        "SELECT id FROM memes WHERE caption LIKE ? OR keywords LIKE ? "
+        "SELECT id FROM memes WHERE caption LIKE ? ESCAPE '\\' OR keywords LIKE ? ESCAPE '\\' "
         "ORDER BY id DESC LIMIT ?",
-        (f"%{q}%", f"%{q}%", limit),
+        (f"%{_like_escape(q)}%", f"%{_like_escape(q)}%", limit),
     ).fetchall()
     return [(int(r["id"]), 0.5) for r in rows]
 
@@ -109,8 +128,13 @@ def _kw_glosses(conn, query: str, limit: int) -> list[tuple[int, float]]:
     """
     try:
         return _search_fts(conn, "glosses_fts", "msg_id", query, limit)
-    except sqlite3.OperationalError:
-        return []  # 还没建 gloss 索引的老库
+    except sqlite3.OperationalError as e:
+        # 只吞「还没建 gloss 索引」；其它错误（locked / 损坏）应该冒出来。
+        # 旧的宽 except 是死代码——内层已经把异常吞掉了，于是 GLOSS_ROUTE=1
+        # 但没跑 gloss_messages.py 时表现为「这一路永远没命中」，很难查。
+        if "no such table" in str(e):
+            return []
+        raise
 
 
 # ---------------------------------------------------------------- RRF 融合
@@ -153,17 +177,19 @@ def _mode_of(conn: sqlite3.Connection, mode: str) -> str:
 
 def _rank_messages(conn, query: str, mode: str, limit: int) -> list[tuple[int, float]]:
     kw = _kw_messages(conn, query, limit * 3) if mode in ("keyword", "hybrid") else []
-    vec = vectors.search(conn, query, "message", limit * 3) if mode in ("vector", "hybrid") else []
+    vec = (_vec_safe(conn, query, "message", limit * 3) or []) if mode in ("vector", "hybrid") else []
     if mode == "hybrid":
-        return rrf_fuse([kw, vec])[:limit]
+        # 和 search_all 用同一套参数：以前这里固定 rrf_fuse([kw, vec])（k=60、无权），
+        # 于是 bench_fusion 调出来的数字描述不了这条路径。
+        return rrf_fuse([kw, vec], k=cfg.RRF_K, weights=[1.0, cfg.RRF_VEC_W])[:limit]
     return (kw if mode == "keyword" else vec)[:limit]
 
 
 def _rank_memes(conn, query: str, mode: str, limit: int) -> list[tuple[int, float]]:
     kw = _kw_memes(conn, query, limit * 3) if mode in ("keyword", "hybrid") else []
-    vec = vectors.search(conn, query, "meme", limit * 3) if mode in ("vector", "hybrid") else []
+    vec = (_vec_safe(conn, query, "meme", limit * 3) or []) if mode in ("vector", "hybrid") else []
     if mode == "hybrid":
-        return rrf_fuse([kw, vec])[:limit]
+        return rrf_fuse([kw, vec], k=cfg.RRF_K, weights=[1.0, cfg.RRF_VEC_W])[:limit]
     return (kw if mode == "keyword" else vec)[:limit]
 
 
@@ -344,7 +370,9 @@ def search_all(
             for i, kd in enumerate(kinds)
         ]
         ranked = rrf_fuse(lists, k=cfg.RRF_K, weights=weights)
-    ranked = ranked[:limit]
+    # 多留一点余量再截断：已删消息的向量还会排在前面，hydrate 时被 skip 掉，
+    # 不留余量就会出现「limit=10 只返回 3 条」且没有任何提示。
+    ranked = ranked[: limit + 10]
 
     msg_ids = [oid for oid, _ in ranked if oid < MEME_OFF]
     meme_ids = [oid - MEME_OFF for oid, _ in ranked if oid >= MEME_OFF]
@@ -359,6 +387,8 @@ def search_all(
             continue
         h = {**h, "score": round(sc, 6)}
         hits.append(h)
+        if len(hits) >= limit:
+            break
 
     took = (time.perf_counter() - t0) * 1000
     return {

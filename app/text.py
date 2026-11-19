@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 _CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _ASCII_WORD = re.compile(r"[a-zA-Z0-9_]+")
@@ -31,6 +32,10 @@ def to_bigrams(text: str) -> str:
     """返回空格分隔的 token 串，可直接写进 fts5 表。"""
     if not text:
         return ""
+    # 全角归一化：中文输入法打出来的「１４７」「ＱＱ」「％」在 _SPLIT 里是分隔符，
+    # 会被整段丢掉（实测 to_bigrams('１００％') == ''）→ FTS 查不到、LIKE 回退拿
+    # 全角串比半角库也永远是 0 条。NFKC 之后索引与查询天然对称（两边都走这个函数）。
+    text = unicodedata.normalize("NFKC", text)
     tokens: list[str] = []
     # 先按非中文/非字母数字切段，再逐段处理
     for chunk in _SPLIT.split(text):

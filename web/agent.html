@@ -321,7 +321,8 @@ async function ask() {
   outEl.appendChild(loading);
 
   try {
-    const r = await fetch('/api/agent?q=' + encodeURIComponent(q));
+    // POST 而不是 GET：这个接口会写记忆、烧模型额度，GET 会被链接预览/预取触发
+    const r = await fetch('/api/agent?q=' + encodeURIComponent(q), { method: 'POST' });
     if (r.status === 401) { location.href = '/login'; return; }
     const d = await r.json();
 

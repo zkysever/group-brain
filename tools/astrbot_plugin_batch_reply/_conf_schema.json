@@ -33,5 +33,10 @@
     "type": "int",
     "description": "回复字数上限（超出会被截断）",
     "default": 80
+  },
+  "lexicon": {
+    "type": "bool",
+    "description": "用群内词库（A6）：回复时带上已学会的词，回完把这段发给 group-brain 复盘",
+    "default": true
   }
 }

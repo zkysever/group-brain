@@ -300,6 +300,31 @@ def main() -> None:
     finally:
         conn.close()
 
+    # ---- 群内词库（v0.22）：不联网也能验的四件事
+    from app import lexicon  # noqa: E402
+
+    conn = db.connect()
+    try:
+        lexicon.ensure(conn)
+        check("词库：表建出来了", "lexicon" in {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()})
+        # 只凭上下文猜 → status=guess、置信度封顶，不能拿来用
+        row = lexicon._guess(conn, "鱼鱼", "鱼鱼又来自己陪自己了")
+        check("词库：猜出来的词进待审", bool(row) and row["status"] == "guess"
+              and float(row["confidence"]) <= lexicon.CONF_GUESS + 1e-9, str(row and row["status"]))
+        check("词库：猜的词不给用", lexicon.glosses_for(conn, "鱼鱼今天在吗") == [])
+        # 人点头之后才生效
+        check("词库：点头后转正", lexicon.confirm(conn, "鱼鱼") == 1)
+        check("词库：点头后能用", [x["term"] for x in lexicon.glosses_for(conn, "鱼鱼今天在吗")] == ["鱼鱼"])
+        check("词库：reject 之后不再返回",
+              lexicon.reject(conn, "鱼鱼") == 1 and lexicon.glosses_for(conn, "鱼鱼今天在吗") == [])
+        # 软著/误判挡板：常用词和超长数字串不该被当成词
+        check("词库：常用词挡掉", lexicon._usable("这个") is False)
+        check("词库：短数字外号放行", lexicon._usable("147") is True)
+        check("词库：超长数字串挡掉", lexicon._usable("20261119") is False)
+    finally:
+        conn.close()
+
     print()
     if FAILS:
         print(f"[X] {len(FAILS)} 项没过：" + "、".join(FAILS))

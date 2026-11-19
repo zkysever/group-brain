@@ -82,19 +82,36 @@ def verify_token(tok: str | None) -> bool:
     return hmac.compare_digest(mac, good)
 
 
+# 只在本地调试时用：.env 里写 GATE_DEV_OPEN=1 才允许「没配密码就人人都能进」。
+# 以前这里直接 `if not enabled(): return True`——docstring 写着「宁可谁都进不来」，
+# 代码却正好相反：GATE_PASSWORD 漏配（换机器、.env 打错、systemd 少了 EnvironmentFile）
+# 会让 /admin、/api/agent（真烧钱）、/api/bili/post（真往 B 站发评论）全部匿名可用，
+# 而且登录页还进不去（check_password 恒 False），连自己都关不上门。
+_DEV_OPEN = os.environ.get("GATE_DEV_OPEN", "0").strip() in ("1", "true", "yes", "on")
+
+
 def is_open(tok: str | None) -> bool:
-    """门开着（没配密码）或 cookie 合法，都算放行。"""
+    """没配密码时默认「谁都进不来」，只有显式 GATE_DEV_OPEN=1 才敞开。"""
     if not enabled():
-        return True
+        return _DEV_OPEN
     return verify_token(tok)
 
 
 # 失败计数：ip -> 失败时间戳列表。进程内存，重启清零，够用了。
 _fails: dict[str, list[float]] = {}
+_PRUNE_AT = 500                  # 记满这么多 key 就整体剪一次，防止长期运行按 IP 泄漏内存
+
+
+def _prune(now: float) -> None:
+    dead = [k for k, v in _fails.items() if not v or now - v[-1] > _WINDOW]
+    for k in dead:
+        _fails.pop(k, None)
 
 
 def too_many(ip: str) -> bool:
     now = time.time()
+    if len(_fails) > _PRUNE_AT:
+        _prune(now)
     hits = [t for t in _fails.get(ip, []) if now - t < _WINDOW]
     _fails[ip] = hits
     return len(hits) >= _LIMIT

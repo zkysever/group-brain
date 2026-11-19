@@ -20,3 +20,4 @@ out/login_qr.png
 out/cover_dialog.png
 # 抽帧检查用的临时图
 _frames/
+deploy_stage/

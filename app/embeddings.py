@@ -87,7 +87,19 @@ def embed(texts: list[str], batch: int = 16) -> np.ndarray | None:
             {"model": EMBEDDING_MODEL, "input": chunk, "encoding_format": "float"}
         ).encode("utf-8")
         data = _post(body)
-        vectors.extend([d["embedding"] for d in data["data"]])
+        rows = data.get("data") or []
+        # 接口每条都带 index，但顺序不保证；少返一条更隐蔽——`extend` 之后
+        # zip(chunk, arr) 会整体错位，向量永久挂错 id，搜「扎啤」返回无关消息，
+        # 而调用方照旧打印「全部完成」。所以这里按 index 排好并校验条数。
+        try:
+            rows = sorted(rows, key=lambda d: int(d.get("index", 0)))
+        except (TypeError, ValueError):
+            pass
+        if len(rows) != len(chunk):
+            raise EmbeddingError(
+                f"embedding 返回条数不符：要 {len(chunk)} 条，返回 {len(rows)} 条"
+            )
+        vectors.extend([d["embedding"] for d in rows])
 
     arr = np.asarray(vectors, dtype=np.float32)
     norms = np.linalg.norm(arr, axis=1, keepdims=True)

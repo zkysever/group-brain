@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import hmac
 import mimetypes
 import re
 import threading
@@ -19,14 +20,34 @@ import requests
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import admin, agent, auth, bili, bili_writer, coach, curator, db, facts, learn, memory, search, series
+from . import admin, agent, auth, bili, bili_writer, coach, curator, db, facts, learn, lexicon
+from . import memory, search, series
 from . import config as cfg
+from . import vectors
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.20.0")
+app = FastAPI(title="group-brain", version="0.22.1")
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    """启动时跑一次建表 + 迁移。
+
+    以前 `db.init()` 只在 scripts/init_db.py 里调，线上靠部署脚本记得跑；
+    忘了跑、或者跑的时候库被锁住，表现是「草稿永远存不上」这种很晚才发现的怪现象。
+    现在启动就补，失败就直接起不来（见 db._migrate 的说明）。
+    """
+    vectors.clear_cache()   # 进程刚起来，别继承任何旧矩阵
+    db.init()
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
-PUBLIC = {"/login", "/api/health", "/favicon.ico", "/portfolio", "/series", "/api/series"}
+# /api/lexicon/* 放开是给 AstrBot 插件用的：它在 docker 里，带不上口令 cookie，
+# 改用 header 里的 `X-GB-Token`（见 _lex_ok），不校验就一律 401。
+PUBLIC = {
+    "/login", "/api/health", "/favicon.ico", "/portfolio", "/series", "/api/series",
+    "/api/lexicon/context", "/api/lexicon/observe", "/api/lexicon/correct",
+    "/api/lexicon/confirm",
+}
 
 _ERR_TEXT = {
     "bad": "口令不对，再试一次。",
@@ -66,16 +87,33 @@ def conn():
 async def gate(request: Request, call_next):
     """所有请求先过这道门；放行的两种：公开路径、cookie 合法。"""
     path = request.url.path
-    # /out/ 让投稿页跨域取视频用，它自己按 OUT_TOKEN 校验，不走口令 cookie
+    # /out/ 让投稿页跨域取视频用（跨域请求带不上 cookie），它自己按 OUT_TOKEN 校验。
+    # 但只有「真配了 OUT_TOKEN」才放行：否则 /out/ 就是一个匿名文件服务器，
+    # 视频、封面连同未来往那里丢的任何东西都能被任何人下载。
     if (
         path in PUBLIC
-        or path.startswith("/out/")
+        or (path.startswith("/out/") and cfg.OUT_TOKEN)
         or auth.is_open(request.cookies.get(auth.COOKIE_NAME))
     ):
         return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"detail": "需要口令", "login": "/login"}, status_code=401)
     return RedirectResponse("/login", status_code=302)
+
+
+def client_ip(request: Request) -> str:
+    """取真实来源 IP。
+
+    线上挂在 Cloudflare 后面，`request.client.host` 永远是 CF 的地址：
+    所有人共用一个登录失败桶 → 谁故意打错 10 次，全站登录被挡 10 分钟。
+    取 X-Forwarded-For 最左一跳（CF 会追加，最左是真实客户端）。
+    """
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
+    return request.client.host if request.client else "unknown"
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -91,7 +129,7 @@ def login_page(err: str = ""):
 @app.post("/login")
 async def login_submit(request: Request):
     """表单解析用手写：只为这一处装 python-multipart 不值。"""
-    ip = request.client.host if request.client else "unknown"
+    ip = client_ip(request)
     if auth.too_many(ip):
         return RedirectResponse("/login?err=too_many", status_code=303)
 
@@ -213,7 +251,7 @@ def _agent_session(request: Request) -> tuple[str, bool]:
     return memory.new_session(), True
 
 
-@app.get("/api/agent")
+@app.post("/api/agent")
 def api_agent(
     request: Request,
     q: str = Query("", description="用户的一句话"),
@@ -221,6 +259,11 @@ def api_agent(
     history: str = Query("", description='（兼容旧客户端）刚才的对话，JSON： [{"role":"user","content":"…"}]'),
 ):
     """A2：把检索当工具交给模型，由它自己决定调不调、调哪个。
+
+    2026-11-19 从 GET 改成 POST：GET 会写记忆、烧 DeepSeek 额度，
+    而 cookie 是 samesite=lax —— 只挡跨站子资源，顶层导航照样带 cookie。
+    任何页面放一个 `<a href="…/api/agent?q=…">`、或者聊天软件生成链接预览，
+    就能替用户问一句并写进共享记忆。
 
     记忆现在存在服务端（2026-11-12 改的）：浏览器带一个 `gb_sess` cookie，
     每轮问答写进 `agent_turns` 表，下一次提问从库里取最近 N 轮。
@@ -264,7 +307,7 @@ def api_agent(
     return resp
 
 
-@app.api_route("/api/agent/forget", methods=["GET", "POST"])
+@app.post("/api/agent/forget")
 def api_agent_forget(request: Request):
     """清空当前记忆。用户要求「别再删记忆」，但总得留个能删的按钮。
 
@@ -309,6 +352,102 @@ def api_agent_fixes(limit: int = Query(50, ge=1, le=200)):
 @app.post("/api/agent/fix/delete")
 def api_agent_fix_delete(id: int = Query(..., description="corrections 表的 id")):
     return {"ok": True, "deleted": learn.delete(conn(), id)}
+
+
+# --------------------------------------------------------------- 群内自学（A6）
+# 三个接口给 AstrBot 插件用：它在 docker 里，带不上口令 cookie，所以放行后用
+# `X-GB-Token` 再校验一道（值来自 .env 的 LEARN_TOKEN，没配就是 OUT_TOKEN）。
+
+def _lex_ok(request: Request) -> bool:
+    want = cfg.LEARN_TOKEN
+    if not want:
+        return False
+    got = request.headers.get("x-gb-token", "")
+    # 常量时间比较：token 是写权限凭证，别给计时侧信道留口子。
+    return bool(got) and hmac.compare_digest(got, want)
+
+
+@app.get("/api/lexicon/context")
+def api_lexicon_context(request: Request, text: str = Query("", max_length=500)):
+    """回复插件在问模型之前调它：这句话里有哪些「已经学会的词」。
+
+    只查库，不上网、不调模型 —— 群聊回复不能为了一个词等 5 秒。
+    """
+    if not _lex_ok(request):
+        return JSONResponse({"detail": "token 不对"}, status_code=401)
+    c = conn()
+    hits = lexicon.glosses_for(c, text, limit=3)
+    return {
+        "ok": True,
+        "glosses": [{"term": h["term"], "gloss": h["gloss"], "kind": h["kind"]} for h in hits],
+    }
+
+
+@app.post("/api/lexicon/observe")
+async def api_lexicon_observe(request: Request):
+    """回复完把这一阵群聊丢过来复盘：判词 → 上网查 → 记住。立刻返回，学习在后台。"""
+    if not _lex_ok(request):
+        return JSONResponse({"detail": "token 不对"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return {"ok": False, "error": "body 不是 JSON"}
+    lines = body.get("lines") or []
+    if not isinstance(lines, list) or not lines:
+        return {"ok": False, "error": "lines 为空"}
+    clean = [
+        {"who": str(x.get("who") or "")[:40], "text": str(x.get("text") or "")[:300]}
+        for x in lines[:20]
+        if isinstance(x, dict) and str(x.get("text") or "").strip()
+    ]
+    if not clean:
+        return {"ok": False, "error": "没有有效文本"}
+    return {"ok": True, **lexicon.observe_async(clean, str(body.get("reply") or "")[:300])}
+
+
+@app.post("/api/lexicon/correct")
+async def api_lexicon_correct(request: Request):
+    """学错了怎么办：群里有人纠正时直接把解释覆盖掉。"""
+    if not _lex_ok(request):
+        return JSONResponse({"detail": "token 不对"}, status_code=401)
+    body = await request.json()
+    try:
+        lexicon.correct(conn(), str(body.get("term") or ""), str(body.get("gloss") or ""))
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True}
+
+
+@app.post("/api/lexicon/confirm")
+async def api_lexicon_confirm(request: Request):
+    """人点头：把「只凭上下文猜的」词放行（可以顺手改一句解释）。"""
+    if not _lex_ok(request):
+        return JSONResponse({"detail": "token 不对"}, status_code=401)
+    body = await request.json()
+    try:
+        n = lexicon.confirm(conn(), str(body.get("term") or ""), str(body.get("gloss") or ""))
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "confirmed": n}
+
+
+@app.get("/api/lexicon/list")
+def api_lexicon_list(limit: int = Query(100, ge=1, le=400)):
+    """它自学了哪些词（这个走口令，是给人看的）。"""
+    c = conn()
+    return {"ok": True, **lexicon.stats(c), "rows": lexicon.all_rows(c, limit),
+            "worker": lexicon.state()}
+
+
+@app.post("/api/lexicon/reject")
+def api_lexicon_reject(term: str = Query(..., description="学错的那个词")):
+    return {"ok": True, "rejected": lexicon.reject(conn(), term)}
+
+
+@app.post("/api/lexicon/mine")
+def api_lexicon_mine(limit: int = Query(8, ge=1, le=20), days: int = Query(2, ge=1, le=7)):
+    """手动跑一次「挖词」：从最近的群聊里找群内说法（cron 每天也会跑）。"""
+    return {"ok": True, **lexicon.mine(conn(), limit=limit, days=days)}
 
 
 @app.get("/facts", response_class=HTMLResponse)
@@ -523,8 +662,12 @@ def out_file(name: str, k: str = Query("", description="OUT_TOKEN，投稿页 fe
     if not _OUT_NAME.match(name):
         raise HTTPException(404, "没有这个文件")
     # 这一路是给「投稿页把视频读成 blob」用的：跨域 fetch 带不上口令 cookie，
-    # 所以用一次性 token 代替口令；没配 token 就只给本机调试用。
-    if cfg.OUT_TOKEN and k != cfg.OUT_TOKEN:
+    # 所以用 token 代替口令。**没配 token 就直接 404**——以前是「不配就不校验」，
+    # 等于把 out/ 变成一个匿名文件服务器（口令门对 /out/ 也是放行的）。
+    if not cfg.OUT_TOKEN:
+        raise HTTPException(404, "没有这个文件")
+    # 常量时间比较，别给 token 留计时侧信道
+    if not hmac.compare_digest(k, cfg.OUT_TOKEN):
         raise HTTPException(404, "没有这个文件")
     root = _OUT_DIR.resolve()
     p = (root / name).resolve()
@@ -590,7 +733,9 @@ def api_health():
     """探活要看两件事：进程活着，库能读。
 
     早期只回 {"ok": true}，结果库炸了它还报健康，白瞎——自己骗自己。
-    现在把库能不能读、有多少条数据一起报出来。
+    现在库读不出来就 **503 + ok:false**：外部探活 / Cloudflare 健康检查只认状态码，
+    返回 200 就等于「崩了也算健康」。异常细节只写日志，别把
+    `sqlite3.OperationalError: unable to open database file /opt/...` 送给匿名访问者。
     """
     try:
         s = search.stats(conn())
@@ -604,10 +749,10 @@ def api_health():
             "vector_ok": s["vector_ok"],
         }
     except Exception as e:  # 库坏了也要能探活，否则监控永远只看到 502
+        print(f"[health] 库读不出来: {type(e).__name__}: {e}", flush=True)
         return JSONResponse(
-            {"ok": True, "version": app.version, "db_ok": False,
-             "error": f"{type(e).__name__}: {e}"},
-            status_code=200,
+            {"ok": False, "version": app.version, "db_ok": False, "error": "db unavailable"},
+            status_code=503,
         )
 
 # ------------------------------------------------------------------ B 站账号（v0.20）

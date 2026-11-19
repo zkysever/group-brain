@@ -101,6 +101,8 @@ function renderTop(s) {
         ${c.web && c.web.reader ? '通' : '断'}<small> ${(c.web && c.web.cached) || 0} 条搜索缓存</small></div></div>
       <div class="card"><div class="k">B 站选片</div><div class="v">${(c.curator && c.curator.today) || 0}
         <small> 今天推的 / 深读还剩 ${(c.curator && c.curator.deep_left) || 0} 次</small></div></div>
+      <div class="card"><div class="k">群内词库</div><div class="v">${(c.lexicon && c.lexicon.terms) || 0}
+        <small> 个词 / 今天学会 ${(c.lexicon && c.lexicon.learned_today) || 0}</small></div></div>
     </div>`;
 }
 

@@ -23,8 +23,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import random
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections import deque
 from pathlib import Path
 
@@ -38,6 +43,44 @@ DEFAULT_PACK = Path(
     "/AstrBot/data/plugin_data/meme_manager/packs/deepseek-fanart-meme-pack/memes"
 )
 IMAGE_EXTS = {".webp", ".jpg", ".jpeg", ".png", ".gif"}
+
+# ---------------------------------------------------------------- group-brain（A6 群内自学）
+# 容器里连不上宿主的 127.0.0.1:8000，走隧道域名（HTTPS，token 校验）。
+# 拿不到就退回纯聊天：这两个调用都是「锦上添花」，挂了不许影响回复。
+GB_BRAIN = (os.environ.get("GB_BRAIN_URL") or "https://zkysever.com").rstrip("/")
+GB_TOKEN_FILE = Path("/AstrBot/data/gb_lexicon_token.txt")
+GB_TIMEOUT_GET = 3.0
+GB_TIMEOUT_POST = 15.0
+
+
+def _gb_token() -> str:
+    t = os.environ.get("GB_LEXICON_TOKEN", "").strip()
+    if t:
+        return t
+    try:
+        if GB_TOKEN_FILE.exists():
+            return GB_TOKEN_FILE.read_text(encoding="utf-8").strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
+def _gb_call(method: str, path: str, params: dict | None = None,
+             payload: dict | None = None, timeout: float = GB_TIMEOUT_GET) -> dict:
+    token = _gb_token()
+    if not token:
+        return {}
+    url = GB_BRAIN + path
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    data = None
+    headers = {"X-GB-Token": token}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8", "replace") or "{}")
 
 SYSTEM = """你是「蓝色大肥鱼」，一个住在 QQ 群里的 AI 助手，性别不明、说话随意、有点贫但热心。
 
@@ -61,6 +104,8 @@ class BatchReply(Star):
         self.max_buf = int(cfg.get("max_buffer", 20) or 20)
         self.max_chars = int(cfg.get("max_reply_chars", 80) or 80)
         self.enabled = bool(cfg.get("enabled", True))
+        # 群内词库（A6）：开着才在回复里用、才上报复盘；关掉就是纯聊天。
+        self.lexicon = bool(cfg.get("lexicon", True))
         pack = str(cfg.get("meme_pack") or DEFAULT_PACK)
         self.pack = Path(pack)
 
@@ -138,10 +183,55 @@ class BatchReply(Star):
 
         convo = "\n".join(f"{x['who']}：{x['text']}" for x in lines[-self.max_buf:])
         prompt = f"这是刚才群里连着发的消息（最后一条是在叫我）：\n{convo}\n\n回一句。"
+        prompt = await self._enrich(prompt, convo)
         reply = await self._ask(umo, prompt)
         if not reply:
             return
         await self._send(umo, reply)
+        # 复盘刚才这段：让它判词、上网查、记住（后台，不挡回复）
+        asyncio.create_task(self._remember(lines, reply))
+
+    # ---------------------------------------------------------------- 学
+
+    async def _enrich(self, prompt: str, convo: str) -> str:
+        """把「这句话里它已经会的词」拼进 prompt。
+
+        为什么在这里查、而不是让它自己调工具：QQ 回复只有一次模型调用，
+        没有工具循环；而且它得「先知道自己不知道」才会查，那恰恰是不会发生的事。
+        """
+        if not self.lexicon:
+            return prompt
+        try:
+            data = await asyncio.to_thread(
+                _gb_call, "GET", "/api/lexicon/context", {"text": convo[-400:]}, None
+            )
+        except Exception as exc:  # noqa: BLE001 —— 词库挂了照常聊天
+            logger.info(f"[batch] 词库查询跳过: {type(exc).__name__}")
+            return prompt
+        glosses = data.get("glosses") or []
+        if not glosses:
+            return prompt
+        tip = "；".join(f"{g.get('term')}＝{g.get('gloss')}" for g in glosses[:3])
+        return prompt + f"\n\n（群内词库，可以直接用，不用解释来源：{tip}）"
+
+    async def _remember(self, lines: list[dict], reply: str) -> None:
+        """把这一阵群聊 + 自己的回复发给 group-brain 复盘。失败静默。"""
+        if not self.lexicon:
+            return
+        try:
+            await asyncio.to_thread(
+                _gb_call,
+                "POST",
+                "/api/lexicon/observe",
+                None,
+                {
+                    "lines": [{"who": x["who"], "text": x["text"]} for x in lines][-20:],
+                    "reply": reply[:300],
+                },
+                GB_TIMEOUT_POST,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.info(f"[batch] 复盘上报跳过: {type(exc).__name__}")
 
     # ---------------------------------------------------------------- 模型
 

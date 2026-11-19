@@ -197,10 +197,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
 
 def connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
+    # 显式设一次：默认 0 表示「一撞锁立刻报 database is locked」，
+    # 而线程本地连接是长期复用的，报错时未提交事务会留在连接上，
+    # 下一个落到这个线程的请求一 commit 就把别人的半截写入一起提交了。
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -226,8 +230,13 @@ def _migrate(conn: sqlite3.Connection) -> list[str]:
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             done.append(f"{table}.{col}")
-        except sqlite3.Error:
-            pass
+        except sqlite3.Error as e:
+            # 以前这里是 pass：启动时库被锁一下，`bili_drafts.account` 就没加上，
+            # 之后每次存草稿都抛 `no such column: account`，而启动日志一片安静。
+            # 宁可启动失败，也不要带一个「半迁移」的库跑起来。
+            raise sqlite3.OperationalError(
+                f"迁移失败 {table}.{col}: {e}（数据库被锁？删掉 data 下的 -wal/-shm 再试）"
+            ) from e
     if done:
         conn.commit()
     return done

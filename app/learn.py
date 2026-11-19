@@ -122,14 +122,17 @@ def find(conn: sqlite3.Connection, question: str) -> dict[str, Any] | None:
         ).fetchone()
 
     if row is None and len(n) >= MIN_FUZZY:
-        qb = set(to_bigrams(n))
+        # to_bigrams() 返回的是**空格分隔的串**（"大肥 肥鱼 鱼是"），
+        # 直接 set() 得到的是单字集合，判定就退化成「字符互相包含」：
+        # 「大肥鱼是谁」会命中「大鱼是谁」。必须 .split() 之后才是 bigram 集合。
+        qb = set(to_bigrams(n).split())
         if qb:
             # 二元组全包含：候选不会太多，直接在 Python 里判，别写复杂的 SQL
             for cand in conn.execute(
                 "SELECT * FROM corrections WHERE length(norm) >= ? ORDER BY id DESC LIMIT 100",
                 (MIN_FUZZY,),
             ):
-                cb = set(to_bigrams(cand["norm"]))
+                cb = set(to_bigrams(cand["norm"]).split())
                 if cb and (qb <= cb or cb <= qb):
                     row = cand
                     break

@@ -208,7 +208,7 @@ def pick(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str]:
                 it = dict(items[i], why=str(p.get("why") or "")[:40], score=5)
                 picks.append(it)
         # 去重（模型偶尔同一个编号写两遍）
-        seen: set[int] = set()
+        seen: set[str] = set()
         uniq = []
         for it in picks:
             if it["bvid"] in seen:
@@ -224,6 +224,27 @@ def pick(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str]:
     # 兜底：按弹幕率取前若干条，至少别让当天断供
     fallback = [dict(x, why="兜底：弹幕率靠前", score=3) for x in items[:PICK_MAX]]
     return fallback, "fallback"
+
+
+def _fill(picked: list[dict[str, Any]], cand: list[dict[str, Any]],
+          lo: int = PICK_MIN) -> list[dict[str, Any]]:
+    """不够 lo 条就从剩下的候选里按热度补足。
+
+    为什么需要：模型偶尔只挑五六条（或者挑中的被红线拦掉），而这条线的承诺是
+    「一次 10–20 条」。少发比多发更糟 —— 用户每天早上打开就是这个数量，少了他会以为坏了。
+    """
+    out = list(picked)
+    have = {x["bvid"] for x in out}
+    if len(out) >= lo:
+        return out
+    for x in cand:
+        if len(out) >= lo:
+            break
+        if x["bvid"] in have or BLOCK_TITLE.search(x["title"]):
+            continue
+        have.add(x["bvid"])
+        out.append(dict(x, why="补足数量（按弹幕率）", score=3))
+    return out
 
 
 # ---------------------------------------------------------------- 存储
@@ -329,6 +350,7 @@ def run(conn: sqlite3.Connection | None = None, force: bool = False,
         picked, how = pick(cand)
         # 模型偶尔还是会挑到红线内容（prompt 说不听），发之前再拦一道
         picked = [x for x in picked if not BLOCK_TITLE.search(x["title"])]
+        picked = _fill(picked, cand)
         if not picked:
             return {"ok": True, "skipped": "挑不出东西", "pool": len(raw), "cand": len(cand)}
         if dry:

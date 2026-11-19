@@ -1,0 +1,6 @@
+name: astrbot_plugin_gb_lexicon
+display_name: 群内自学（喂 group-brain 复盘）
+desc: 把群里的聊天攒段后发给 group-brain，由它判词、上网查、记住；不拦消息不回复。
+version: 1.0.0
+author: zkysever
+repo: https://github.com/zkysever/group-brain

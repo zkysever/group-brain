@@ -973,3 +973,45 @@ answer: 标题是「【最短路径Floyd算法详解推导过程】看完这篇�
 | 2026-11-16 | v0.18.1 | **真浏览器兜底**：`cfg.BROWSER_READER` + `websearch.browser_read()`，服务器抓不到（403 / 空正文 / JS 壳）时经 SSH 反向隧道转发到主人电脑上的真 Chromium（`Desktop\bsk-reader\`）；`/admin` 加「真浏览器兜底 通/断」卡片 | 四页对照：知乎 403→204 字、掘金 2397 字节→352 字、StackOverflow 403→1200 字、python.org 仍走纯 HTTP；隧道断了自动退回纯 HTTP（14.8） |
 | 2026-11-16 | v0.19 | **B 站选片**：`app/curator.py`（热门列表 → 热评 → 打分 → 值得才深读 → 写 outbox）+ `tools/astrbot_plugin_qq_curator/`（轮询 outbox 发 QQ 私聊）+ `POST /api/curator/run` + 面板任务与卡片；cron `0 8-22 * * *` | 免费信号区分度够（8 条里 1 条 4 分、7 条 2 分且理由成立）；深读两次失败（Agent Window 关闭 / 412）但不影响推送；端到端推送成功（14.5） |
 | 2026-11-16 | v0.19.1 | **服务器自己开网页**：`app/headless.py`（Playwright + chromium-headless-shell，单并发）；`websearch.fetch()` 三档（http → headless → 主人电脑上的真浏览器）；`curator.deep_read()` 改走 B 站官方接口（`view` + `reply`，带伪 buvid cookie 绕 412） | 深读 0.3s / 261 字、**完全不碰浏览器**；掘金 JS 壳 `via=headless` 400 字 5.5s；百度 0.1s；知乎未登录仍只有 117 字；定时任务与他电脑开关机彻底解耦（14.9） |
+| 2026-11-19 | v0.22 | **A6 群内自学**：`app/lexicon.py`（判词 → 上网查 → 写解释 → 落库，群内外号只「猜」不直接用）+ 插件 `astrbot_plugin_gb_lexicon`（priority=-300 只记账）+ `/api/lexicon/*` 六个端口 + `scripts/learn_terms.py`；cron 每天 04:40 主动挖词 | 上线后 658 条群消息里学会 5 个词；端到端 `开盒` 45 秒内可查（conf 0.95）；挖词一轮 `鱼鱼/大肥鱼/鱼受宠若惊/陪自己唠` 四条，三条走猜、等人点头（16） |
+| 2026-11-19 | v0.22.1 | 两次代码审查 24 条修复：`auth.is_open()` 语义反了、`/out/` 未配 token 即匿名、`.env` 空值 import 期崩、工具参数无下界、health 恒 200、时区、`_chat` 重试 400、工具重复调用、向量缓存只按行数失效、FTS 的 AND 短路、全角归一化、LIKE 通配符 | 主集回归 **48/50 = 0.960**、误触发 **0/12**（与历史最好一致）；`LEXICON_TOOL=1` 掉到 0.860/0.167 → 工具默认关、只留 hint；检索主集 hybrid 0.979/MRR 0.934、难集 0.820/0.654（语料 483→658 条变大所致，见 16.2） |
+
+## 十六、v0.22 / v0.22.1：词库上线 + 两次代码审查
+
+### 16.1 词库对 Agent 的影响（A/B，同一份线上代码、同一批 50 条）
+
+| 配置 | 正确率 | 误触发 | 平均轮数 | 平均耗时 |
+|---|---|---|---|---|
+| `LEXICON_TOOL=0`（新默认） | **48/50 = 0.960** | **0/12** | 0.94 | 1219ms |
+| `LEXICON_TOOL=1` | 43/50 = 0.860 | 2/12 | 1.12 | 1356ms |
+
+失败样例全是「多调一次」：`上次那个说自己是鱼的人` 多调 `search_facts`、`你的设定是什么` 调了 `search_facts/search_memory`、`昨天有谁在群里说话` 调到 4 次。
+
+**结论：知识以 `hint`（一句话提示）形式注入是无害的，做成工具是有毒的。** 这和 v0.14 那次 `search_facts` 把 49 掉到 46 是同一个病：**工具越多，模型越爱「先查一下」**，而这类问题本来就该直接答。所以 `LEXICON_TOOL` 默认关，留开关是为了随时能复现这个结论。
+
+### 16.2 检索回归：数字掉了，但不是改坏了
+
+- 主集（50 条）：`hybrid Recall@5 0.979 / MRR 0.934`，keyword 0.938 / vector 0.958 —— 与 v0.4 的 1.000 属同一档；
+- 难集（50 条）：`hybrid 0.820 / MRR 0.654`，keyword 0.620 / vector 0.780，融合 +32.3%。
+
+难集从 0.840/0.704 变成 0.820/0.654，**差一条题**。原因不是 FTS 合并或 RRF 权重改动（那两处只会让候选更多），而是**语料从 483 条长到 658 条**：gold 没变、干扰项多了 36%，难集这种「不重字」的问法最先受影响。这也再次印证 13.10 的结论——瓶颈在语料表达力，不在检索算法。
+
+### 16.3 审查修了什么（按风险排）
+
+1. **`auth.is_open()` 语义反了**：`GATE_PASSWORD` 漏配时 `return True`，等于把 `/admin`、`/api/agent`、`/api/admin/run` 全裸奔；现在默认 `False`，要开发模式必须显式 `GATE_DEV_OPEN=1`。
+2. **`/out/` 未配 token 就是匿名文件服务器**：改成未配直接 404，且用 `hmac.compare_digest` 比对（原来 `!=` 非常量时间）。
+3. **`.env` 写空值会让 app 起不来**：所有 `int(os.environ.get(...))` 换成 `_env_int/_env_flag`，带默认值与上下界；`AGENT_MAX_ROUNDS=-1` 那种让模型零轮返回空答案的配置现在被夹到 0–6。
+4. **工具参数只有上界**：`{"limit":"五张"}` 原来 500，`{"limit":-1}` 在 SQLite 里等于不限制。新增 `_lim()`（夹到 1..hi）+ `_run_tool` 外层兜异常，坏参数变成一条 error 结果喂回模型。
+5. **`/api/health` 恒 200**：库读不出来时也回 `ok: true` 并把异常原文给匿名访问者；现在 503 + `error: "db unavailable"`。
+6. **时区**：`datetime.now().astimezone()` 在 `TZ=UTC` 的服务器上会把 00:00–08:00 的日期和星期算错；改 `_now_cn()`（zoneinfo，Windows 无 tzdata 时退回固定 +8）。
+7. **`_chat()` 连 400 都重试**：参数错要多打三次上游 + 阻塞 4.5 秒；现在只重试 429/5xx/网络错。
+8. **同一工具同参数被调两次**：前置预查之后模型常再调一次，白烧一轮；`_run_tool` 用 `(name, args)` 去重，`fetch_url` 加「一次对话最多 2 页」计数。
+9. **向量缓存只按行数失效**：`build_vectors.py --force` 是 DELETE+INSERT，条数不变 → 进程一直拿旧矩阵；缓存键改成 `(COUNT, MAX(owner_id), MAX(dim), vec_model)`，并校验维度与 `EMBEDDING_MODEL` 一致（换模型时报错而不是拿噪声算余弦）。
+10. **FTS 的 `if rows:` 让 AND 短路**：AND 命中 1 行就直接返回，docstring 承诺的「命中太少再 OR」从来没跑过；改成 AND/OR 结果合并到阈值。
+11. **全角字母数字被整段丢弃**：`to_bigrams('１４７')` 返回空串 → FTS 空、LIKE 拿全角比半角永远 0；入口加 NFKC 归一化。
+12. **其余**：LIKE 转义 `% _`、hydrate 前多取 10 条补位已删消息、`PRAGMA busy_timeout=5000`、迁移失败不再静默、`/api/agent` 与 `/forget` 只收 POST、登录限流按 `X-Forwarded-For` 最左一跳且失败表定期剪枝、`db.init()` 进 startup。
+
+### 16.4 审查里确认「没问题、别重复查」的点
+
+`to_bigrams` 与 FTS 索引是同一套切法（`match '"大肥" "肥鱼"'` 50 命中）；FTS 是普通表不是 external-content，`DELETE ... WHERE msg_id=?` 与插入自洽（0 孤儿）；bm25 取负排序正确；605 条向量全 float32 / 1024 维 / 已归一化；RRF 的 `1/(k+rank)` 与 `[:limit]` 无 off-by-one；`auth.verify_token` 的 HMAC + `compare_digest` + 过期检查是对的；`websearch.fetch` 的 SSRF 白名单（`websearch.py:224-232`）挡住了私网和奇怪端口。
+
