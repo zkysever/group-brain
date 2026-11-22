@@ -21,3 +21,13 @@ out/cover_dialog.png
 # 抽帧检查用的临时图
 _frames/
 deploy_stage/
+
+# 视频/封面/抽帧产物与临时脚本（2026-11-22）
+out/ep*/
+out/*_cover.png
+out/*_published_cover.jpg
+out/*.log
+_*.py
+_*.png
+_*.txt
+*.bak

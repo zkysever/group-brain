@@ -391,7 +391,7 @@ def main() -> int:
         if not getattr(args, need):
             raise SystemExit(f"缺 --{need.replace('_', '-')}")
 
-    meta = json.loads(Path(args.meta).read_text(encoding="utf-8"))
+    meta = json.loads(Path(args.meta).read_text(encoding="utf-8-sig"))  # utf-8-sig：PowerShell 写出来带 BOM
     ensure_session(args.session)
     if not args.skip_login:
         wait_login()

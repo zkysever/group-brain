@@ -1,0 +1,11 @@
+﻿{
+  "id": "ep13",
+  "title": "我偷偷吃了几百万Token",
+  "filename": "ep13.mp4",
+  "tags": ["AI", "大模型", "Token", "Python", "个人项目", "从零开始", "独立开发", "程序员日常"],
+  "partition": "人工智能",
+  "declarations": ["含AI生成内容"],
+  "cover_title": "我偷偷吃了几百万Token",
+  "cover_sub": "从零做 AI 应用 · 番外",
+  "desc": "一只鲸鱼住在我的电脑里，每天拿我的 Token 去 B 站刷视频。这期把它的账算了一遍。\n\n· 一条 34 分钟的视频：约 28,200 Token（封面/简介/字幕/弹幕热区/热评/抽帧，六路各一次调用）\n· 一天最多 3 条：84,600\n· 一个月：2,538,000\n\n口径写在画面里：字数×0.8、帧数×1,100，是估算，不是发票。\n\n她看的片段来自（仅用于说明，版权归原作者）：\nBV1xx411c7mD · 碧诗\nBV1oVnq6DE41 · 生肉烹饪师\nBV1L84t66Eef · 大伟AI全栈\n\n系列「从零做 AI 应用」全部 12 期 + 番外：https://zkysever.com/series\n代码：https://github.com/zkysever/group-brain\n作品集：https://zkysever.com/portfolio"
+}
