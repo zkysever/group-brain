@@ -27,3 +27,51 @@
 [next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\20261118-130011-prep-ep03.json root@118.178.109.54:/opt/qqbot/astrbot-data/curator/outbox/20261118-130011-prep-ep03.json
 [next] 已写投递单 20261118-130011-prep-ep03.json，QQ 插件 60 秒内把视频发给你
 [周三 2026/11/18 13:00:12.24] done 
+[周四 2026/11/19 13:00:01.79] prep 
+[next] 今天备 ep04（2026-11-19）
+[next]   $ C:\Users\Administrator\Desktop\group-brain\.venv\Scripts\python.exe tools/make_video.py C:\Users\Administrator\Desktop\group-brain\out\queue\ep04\slides.json C:\Users\Administrator\Desktop\group-brain\out\ep04.mp4
+[形象] 3 组，帧数 9, 4, 40
+[ok] 第 1 页 4.9s  字幕 2 行  它自己会上网查了
+[ok] 第 2 页 9.4s  字幕 5 行  卡在两个地方
+[ok] 第 3 页 16.5s  字幕 9 行  三层兜底
+[ok] 第 4 页 14.3s  字幕 7 行  两条安全底线
+[ok] 第 5 页 6.1s  字幕 3 行  现在的结果
+[ok] 第 6 页 6.0s  字幕 3 行  下一条
+[done] C:\Users\Administrator\Desktop\group-brain\out\ep04.mp4  7.7 MB
+[tmp] C:\Users\ADMINI~1\AppData\Local\Temp\gb_video_vaq865sd（可以删）
+[next]   $ C:\Users\Administrator\Desktop\group-brain\.venv\Scripts\python.exe tools/make_cover.py 它自己会上网查了 从零做 AI 应用 · 第 04 期 C:\Users\Administrator\Desktop\group-brain\out\ep04_cover.png
+[封面] C:\Users\Administrator\Desktop\group-brain\out\ep04_cover.png  2560x1440
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\ep04.mp4 root@118.178.109.54:/opt/group-brain/out/
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\ep04_cover.png root@118.178.109.54:/opt/group-brain/out/
+[next]   $ scp -q -r -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\queue root@118.178.109.54:/opt/group-brain/out/
+[next] 已推到服务器：https://zkysever.com/out/ep04.mp4?k=bdadc853571f3f2a7a23545b158e6cd6
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\20261119-130242-prep-ep04.json root@118.178.109.54:/opt/qqbot/astrbot-data/curator/outbox/20261119-130242-prep-ep04.json
+[next] 已写投递单 20261119-130242-prep-ep04.json，QQ 插件 60 秒内把视频发给你
+[周四 2026/11/19 13:02:43.24] done 
+[周五 2026/11/20 13:00:01.94] prep 
+[next] 今天备 ep04（2026-11-19）
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\ep04.mp4 root@118.178.109.54:/opt/group-brain/out/
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\ep04_cover.png root@118.178.109.54:/opt/group-brain/out/
+[next]   $ scp -q -r -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\queue root@118.178.109.54:/opt/group-brain/out/
+[next] 已推到服务器：https://zkysever.com/out/ep04.mp4?k=bdadc853571f3f2a7a23545b158e6cd6
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\20261120-130013-prep-ep04.json root@118.178.109.54:/opt/qqbot/astrbot-data/curator/outbox/20261120-130013-prep-ep04.json
+[next] 已写投递单 20261120-130013-prep-ep04.json，QQ 插件 60 秒内把视频发给你
+[周五 2026/11/20 13:00:14.14] done 
+[周六 2026/11/21 13:00:01.61] prep 
+[next] 今天备 ep04（2026-11-19）
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\ep04.mp4 root@118.178.109.54:/opt/group-brain/out/
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\ep04_cover.png root@118.178.109.54:/opt/group-brain/out/
+[next]   $ scp -q -r -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\queue root@118.178.109.54:/opt/group-brain/out/
+[next] 已推到服务器：https://zkysever.com/out/ep04.mp4?k=bdadc853571f3f2a7a23545b158e6cd6
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\20261121-130010-prep-ep04.json root@118.178.109.54:/opt/qqbot/astrbot-data/curator/outbox/20261121-130010-prep-ep04.json
+[next] 已写投递单 20261121-130010-prep-ep04.json，QQ 插件 60 秒内把视频发给你
+[周六 2026/11/21 13:00:11.72] done 
+[周日 2026/11/22 13:00:02.11] prep 
+[next] 今天备 ep04（2026-11-19）
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\ep04.mp4 root@118.178.109.54:/opt/group-brain/out/
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\ep04_cover.png root@118.178.109.54:/opt/group-brain/out/
+[next]   $ scp -q -r -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\queue root@118.178.109.54:/opt/group-brain/out/
+[next] 已推到服务器：https://zkysever.com/out/ep04.mp4?k=bdadc853571f3f2a7a23545b158e6cd6
+[next]   $ scp -q -P 2222 -i C:\Users\Administrator\.ssh\zkysever.pem C:\Users\Administrator\Desktop\group-brain\out\20261122-130011-prep-ep04.json root@118.178.109.54:/opt/qqbot/astrbot-data/curator/outbox/20261122-130011-prep-ep04.json
+[next] 已写投递单 20261122-130011-prep-ep04.json，QQ 插件 60 秒内把视频发给你
+[周日 2026/11/22 13:00:12.00] done 

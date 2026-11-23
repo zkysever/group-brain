@@ -31,3 +31,5 @@ _*.py
 _*.png
 _*.txt
 *.bak
+.dsh-edge-pub/
+

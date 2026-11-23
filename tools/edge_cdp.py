@@ -76,11 +76,138 @@ def launch(url: str = UPLOAD_URL, wait: float = 6.0) -> None:
     raise SystemExit("[edge] 6 秒内没等到 CDP 端口，可能被杀软拦了")
 
 
+_TARGET = {"id": None}
+
+
+class Conn:
+    """一条长连接上的 CDP 会话。
+
+    为什么要有它：DOM 域的状态（文档、nodeId）是**按连接**记的。每次 call() 都新开
+    一条 websocket 的话，`DOM.getDocument` 拿到的 nodeId 在下一次调用里就失效
+    （`DOM.requestNode` 直接返回 null），文件选择这类多步操作根本做不成。
+    """
+
+    def __init__(self, timeout: float = 60.0):
+        from websocket import create_connection
+
+        self.ws = create_connection(page_target()["webSocketDebuggerUrl"], timeout=timeout)
+        self._id = 0
+
+    def call(self, method: str, params: dict | None = None, timeout: float = 60.0):
+        self._id += 1
+        mid = self._id
+        self.ws.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
+        self.ws.settimeout(timeout)
+        while True:
+            try:
+                data = json.loads(self.ws.recv())
+            except Exception:
+                return None
+            if data.get("id") == mid:
+                if data.get("error"):
+                    return {"__error__": data["error"]}
+                return data.get("result")
+
+    def js(self, expr: str, await_promise: bool = True):
+        res = self.call(
+            "Runtime.evaluate",
+            {"expression": expr, "returnByValue": True, "awaitPromise": await_promise, "userGesture": True},
+        ) or {}
+        if "__error__" in res:
+            raise SystemExit(f"[js] 报错: {json.dumps(res['__error__'], ensure_ascii=False)[:300]}")
+        if "exceptionDetails" in res:
+            raise SystemExit(f"[js] 报错: {json.dumps(res['exceptionDetails'], ensure_ascii=False)[:300]}")
+        return (res.get("result") or {}).get("value")
+
+    def obj_id(self, expr: str) -> str | None:
+        res = self.call("Runtime.evaluate", {"expression": expr, "returnByValue": False}) or {}
+        return (res.get("result") or {}).get("objectId")
+
+    def set_file(self, selector: str, path: str) -> dict:
+        """把本地文件塞进 <input type=file>（必须在同一条连接里做完）。"""
+        self.call("DOM.enable", {})
+        self.call("DOM.getDocument", {"depth": -1})
+        obj = self.obj_id(f"document.querySelector({json.dumps(selector)})")
+        if not obj:
+            return {"ok": False, "why": "selector 没命中"}
+        node = self.call("DOM.requestNode", {"objectId": obj}) or {}
+        nid = node.get("nodeId")
+        if not nid:
+            return {"ok": False, "why": "requestNode 没拿到 nodeId", "node": node}
+        r = self.call("DOM.setFileInputFiles", {"nodeId": nid, "files": [path]})
+        if r is None or (isinstance(r, dict) and "__error__" in r):
+            return {"ok": False, "why": "setFileInputFiles 失败", "res": r}
+        return {"ok": True, "node": nid}
+
+    def close(self) -> None:
+        try:
+            self.ws.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+
+def session(timeout: float = 60.0) -> Conn:
+    return Conn(timeout=timeout)
+
+
+def _browser_ws() -> str:
+    return _http("/json/version").get("webSocketDebuggerUrl") or ""
+
+
+def _browser_call(method: str, params: dict, timeout: float = 20.0):
+    from websocket import create_connection
+
+    ws = create_connection(_browser_ws(), timeout=timeout)
+    try:
+        ws.send(json.dumps({"id": 1, "method": method, "params": params}))
+        while True:
+            data = json.loads(ws.recv())
+            if data.get("id") == 1:
+                return data.get("result")
+    finally:
+        ws.close()
+
+
+def new_tab(url: str, wait: float = 7.0) -> str | None:
+    """开一个干净标签页并把它设为默认目标。
+
+    为什么要新开：编辑页开过封面编辑器之后，同一个标签页常常整页卡死
+    （Runtime.evaluate 全部超时、Page.reload 也没反应），换新页最省事。
+    """
+    res = _browser_call("Target.createTarget", {"url": url}) or {}
+    tid = res.get("targetId")
+    _TARGET["id"] = tid
+    time.sleep(wait)
+    return tid
+
+
+def close_tab() -> None:
+    tid = _TARGET["id"]
+    if not tid:
+        return
+    try:
+        _browser_call("Target.closeTarget", {"targetId": tid})
+    except Exception:
+        pass
+    _TARGET["id"] = None
+
+
 def page_target() -> dict:
-    """挑一个可用的 page 目标；优先 bilibili 的。"""
+    """挑一个可用的 page 目标：先认 new_tab 指定的，再优先 bilibili 的。"""
     tabs = [t for t in _http("/json/list") if t.get("type") == "page"]
     if not tabs:
         raise SystemExit("[edge] 没有可用的标签页")
+    if _TARGET["id"]:
+        for t in tabs:
+            if t.get("id") == _TARGET["id"]:
+                return t
     for t in tabs:
         if "bilibili" in (t.get("url") or ""):
             return t
@@ -95,15 +222,18 @@ def call(method: str, params: dict, timeout: float = 60.0):
     ws = create_connection(t["webSocketDebuggerUrl"], timeout=timeout)
     try:
         ws.send(json.dumps({"id": 1, "method": method, "params": params}))
-        while True:
-            data = json.loads(ws.recv())
-            if data.get("id") == 1:
-                return data.get("result")
+        try:
+            while True:
+                data = json.loads(ws.recv())
+                if data.get("id") == 1:
+                    return data.get("result")
+        except Exception:
+            return None  # 导航中目标会换掉，回执丢了很正常
     finally:
         ws.close()
 
 
-def js(expr: str, await_promise: bool = True, timeout: float = 60.0):
+def js(expr: str, await_promise: bool = True, timeout: float = 25.0):
     """在页面里求值，返回 JSON 化后的结果。"""
     from websocket import create_connection  # 延迟导入：只有要跑 JS 时才需要
 
@@ -122,7 +252,10 @@ def js(expr: str, await_promise: bool = True, timeout: float = 60.0):
         }
         ws.send(json.dumps(msg))
         while True:
-            raw = ws.recv()
+            try:
+                raw = ws.recv()
+            except Exception:
+                return None  # 页面跳转/关闭时回执会丢，别抛
             data = json.loads(raw)
             if data.get("id") == 1:
                 res = data.get("result", {})
@@ -131,6 +264,12 @@ def js(expr: str, await_promise: bool = True, timeout: float = 60.0):
                 return res.get("result", {}).get("value")
     finally:
         ws.close()
+
+
+def nav(url: str, wait: float = 5.0) -> None:
+    """用页面自己的 location 跳转（Page.navigate 在跨站导航时常常收不到回执）。"""
+    call("Runtime.evaluate", {"expression": f"location.href = {json.dumps(url)}", "returnByValue": True})
+    time.sleep(wait)
 
 
 def whoami() -> dict:
