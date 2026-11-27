@@ -1,0 +1,59 @@
+  [ok] 建表
+  [ok] 写入消息    2 条
+  [ok] 搜消息「鱼片」    2 条
+  [ok] 搜表情包「生气」    1 条
+  [ok] auto 模式无向量时退回关键词    8 条
+  [ok] 取上下文 window()    2 条
+  [ok] stats()    {'messages': 2, 'memes': 1, 'vectors': 0, 'vector_ok': False, 'tags': [{'tag': 'angry', 'n': 1}], 'senders': [{'name': '147', 'n': 1}, {'name': 'bot', 'n': 1}], 'ts_from': '2026-01-01 10:00:00.000000', 'ts_to': '2026-01-01 10:00:30.000000'}
+  [ok] memory 写入/读取    2 条
+  [ok] memory 轮数    1
+  [ok] memory 清空
+  [ok] 增量导入：首次新增    {'raw': 2, 'added': 2, 'updated': 0, 'skipped': 0, 'total': 4}
+  [ok] 增量导入：二次全跳过    {'raw': 2, 'added': 0, 'updated': 0, 'skipped': 2, 'total': 4}
+  [ok] learn 归一化命中    白系 AP 是《舞萌》里的一首歌
+  [ok] learn 包含命中
+  [ok] learn 不会乱吃
+  [ok] learn 再教是覆盖    {'total': 1, 'hits': 2}
+  [ok] learn 删掉
+  [ok] facts 写入去重（全等 + 换一两个字）    {'added': 1, 'dup': 2, 'bad': 0}
+  [ok] facts 相似度抓不到换说法的（已知边界）    {'added': 2, 'dup': 0, 'bad': 0}
+  [ok] facts pending 检索不到
+  [ok] facts 点头后能查到    [{'id': 1, 'subject': '147', 'claim': '爱喝扎啤', 'quote': '扎啤', 'msg_ids': '565', 'score': 0.8473}]
+  [ok] facts 拒绝后又查不到
+  [ok] rules 读到启用规则    [('有人说过', ['search_memory'])]
+  [ok] rules 命中参与前置    (['search_memory'], 'high', '自学规则「有人说过」')
+  [ok] rules 遇指代词降级    (['search_memory'], 'low', '含指代词，规则判不了')
+  [ok] rules 停用后不采信
+  [ok] expand 归一化键
+  [ok] expand 解析去重/去原句/截长度    ['鱼片谁说的', '想吃鱼片']
+  [ok] expand 解析非 JSON 返回空
+  [ok] 审阅：真人那条自动点头    [{'id': 4, 'score': 11, 'why': ['原话可查', '主语是群里说过话的人', '结论有原话支撑（100%）']}]
+  [ok] 审阅：bot 那条被列入自动拒绝    [{'id': 2, 'score': 0, 'why': ['原话在引用消息里查不到（可能是编的）']}, {'id': 3, 'score': 0, 'why': ['原话在引用消息里查不到（可能是编的）']}, {'id': 5, 'score': 2, 'why': ['原话可查，但主语是机器人自己']}]
+  [ok] 审阅：dry-run 不写库    {'pending': 4, 'approved': 0, 'rejected': 1, 'hits': 0}
+  [ok] 审阅：--apply 后真的生效    {'pending': 3, 'approved': 1, 'rejected': 1, 'hits': 0}
+  [ok] 审阅：一键撤销退回待审
+  [ok] 联网：去掉标签与实体
+  [ok] 联网：拦住内网地址    127.0.0.1 解析到内网地址 127.0.0.1，不抓
+  [ok] 联网：拦住非 http 协议
+  [ok] 联网：缓存能写能读
+  [ok] 联网：缓存 stats 有数    {'cached': 1, 'tavily': 0}
+  [ok] 选片：两张表建出来了    ['agent_turns', 'bili_actions', 'bili_auth', 'bili_drafts', 'corrections', 'cura
+  [ok] 选片：窗口内 10 点算在窗口
+  [ok] 选片：窗口外 3 点不算
+  [ok] 选片：今天还没深读过    0
+  [ok] 选片：推送文件落地且带链接    🎬 测试标题
+UP：UP　分区：科技　5:00
+一句话：一句话
+我的判断：还行（
+  [ok] 选片：推完记下 pushed_at
+  [ok] 词库：表建出来了
+  [ok] 词库：猜出来的词进待审    guess
+  [ok] 词库：猜的词不给用
+  [ok] 词库：点头后转正
+  [ok] 词库：点头后能用
+  [ok] 词库：reject 之后不再返回
+  [ok] 词库：常用词挡掉
+  [ok] 词库：短数字外号放行
+  [ok] 词库：超长数字串挡掉
+
+[OK] 自检全过（用到的是临时库，没碰你的数据）

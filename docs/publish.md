@@ -131,3 +131,42 @@ python tools/publish_bsk.py ... --dry
 | EP02 | 它记住了我们上周说的话 | BV1FDsu64EMn |
 
 EP01 的简介当时被 Quill 吞了，等下次登录用 `--fix-desc` 补。
+
+
+## 八、改成持久会话 + CDP 发布（2026-11-27，不再需要扫码）
+
+以前每次发片都要他扫一次码，因为 bsk 的 Agent 窗口是**无痕 profile**，登录态不落盘。
+现在改成自己起一个带 `--user-data-dir` 的 Edge，登录一次就一直记住：
+
+```
+msedge.exe --user-data-dir=C:\Users\Administrator\.dsh\edge-pub ^
+           --remote-debugging-port=9223 --remote-allow-origins=* ^
+           --no-first-run --no-default-browser-check --no-proxy-server
+```
+
+`tools/edge_cdp.py` 负责连它（`launch / whoami / nav / js / set_file / new_tab`），
+`tools/publish_cdp.py` 负责发一条：
+
+```
+python tools/publish_cdp.py --meta out/queue/ep08/meta.json ^
+       --video out/ep08.mp4 --cover out/ep08_cover.png
+```
+
+整条链路：真实选文件（`DOM.setFileInputFiles` 指本地 mp4，不用再走服务器 URL）→ 等「上传完成」→
+标题（原生 setter）→ 简介（`.ql-editor` 聚焦 + `Input.insertText`）→ 分区 → 创作声明 →
+清标签（循环点 ×，一次点不掉全部）→ 加标签（逐个回车）→ 封面（`添加封面` 弹窗里选 png，点「完成」）→
+立即投稿 → 页面出现「投稿成功」→ 回读 `x/web/archives` 拿 bvid。
+
+### 四个坑（都写进代码了）
+
+1. **页面卡主线程时 `Runtime.evaluate` 返回 None 而不是报错** —— `wait_uploaded()` 要「读空就重试 3 次再等 5 秒」，
+   否则会误判「上传超时」，而其实视频早传完了。
+2. **分区不能按全页文字找** —— 「推荐标签」里也有「人工智能」，会点错（第一次点成了「音乐」）。
+   必须限定 `.drop-list-v2-item` 里 `innerText` 精确匹配，并且派发的 `MouseEvent` 要带 `clientX/clientY`。
+3. **清标签不能一次点完** —— 十个 × 一次点只生效一个。改成循环「点第一个 → 等 0.45s → 再读」，直到清空。
+4. **顺序有讲究** —— 改分区会让 B 站自动补「影视剪辑 / 爱情」，所以必须 分区 → 声明 → 清标签 → 加标签。
+
+### 已知不一致（不影响观看）
+
+`x/web/archives` 回来的 `tid` 有两套值（209 / 31），`tname` 接口一律不给。
+按他「分区不用管」的口径，没有回改；真要改，走编辑页改完再「立即投稿」会重新进审核。

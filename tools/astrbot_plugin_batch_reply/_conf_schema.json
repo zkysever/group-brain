@@ -38,5 +38,15 @@
     "type": "bool",
     "description": "用群内词库（A6）：回复时带上已学会的词，回完把这段发给 group-brain 复盘",
     "default": true
+  },
+  "caption_provider": {
+    "type": "string",
+    "description": "看图用的视觉模型 ID（留空用 dashscope/qwen3-vl-plus）。回复用的 DeepSeek 是纯文本模型，图片要靠它转成一句话",
+    "default": "dashscope/qwen3-vl-plus"
+  },
+  "caption_max": {
+    "type": "int",
+    "description": "一次回复里最多描述几张图（0 表示不看图，省钱）",
+    "default": 2
   }
 }

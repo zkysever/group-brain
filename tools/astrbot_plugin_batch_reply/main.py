@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import random
@@ -30,6 +31,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from collections import deque
 from pathlib import Path
 
@@ -51,6 +53,9 @@ GB_BRAIN = (os.environ.get("GB_BRAIN_URL") or "https://zkysever.com").rstrip("/"
 GB_TOKEN_FILE = Path("/AstrBot/data/gb_lexicon_token.txt")
 GB_TIMEOUT_GET = 1.5   # 查词库在路上；回复不该等一本词典超过 1.5 秒
 GB_TIMEOUT_POST = 15.0  # 复盘是后台任务，可以慢
+# Cloudflare 会挡掉 urllib 的默认 UA（403 error code 1010），伪装成浏览器
+CLOUDFLARE_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                 "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
 
 def _gb_token() -> str:
@@ -74,7 +79,7 @@ def _gb_call(method: str, path: str, params: dict | None = None,
     if params:
         url += "?" + urllib.parse.urlencode(params)
     data = None
-    headers = {"X-GB-Token": token}
+    headers = {"X-GB-Token": token, "User-Agent": CLOUDFLARE_UA}
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -106,6 +111,13 @@ class BatchReply(Star):
         self.enabled = bool(cfg.get("enabled", True))
         # 群内词库（A6）：开着才在回复里用、才上报复盘；关掉就是纯聊天。
         self.lexicon = bool(cfg.get("lexicon", True))
+        # 看图（2026-11-25 加）：回复用的 DeepSeek 是纯文本模型，图在它眼里只有一个
+        # 「[图片]」字样。所以先让一个视觉模型把图说成人话，再塞进 prompt。
+        self.caption_provider_id = str(
+            cfg.get("caption_provider") or "dashscope/qwen3-vl-plus"
+        )
+        self.caption_max = int(cfg.get("caption_max", 2) or 0)
+        self._cap_cache: dict[str, str] = {}
         pack = str(cfg.get("meme_pack") or DEFAULT_PACK)
         self.pack = Path(pack)
 
@@ -140,9 +152,11 @@ class BatchReply(Star):
         if text.startswith("/"):
             return
 
+        imgs = [seg for seg in (event.get_messages() or []) if isinstance(seg, Image)]
         buf = self._buf.setdefault(umo, deque(maxlen=self.max_buf))
         buf.append({"who": event.get_sender_name() or "某人", "text": text,
-                    "at": at_me, "ts": time.time()})
+                    "imgs": imgs, "at": at_me, "ts": time.time()})
+        # 触发标记单独占一格（不是消息），所以文本里不留空行
         if trigger:
             self._buf[umo].append({"trigger": True})  # 只做标记，触发用
 
@@ -181,7 +195,8 @@ class BatchReply(Star):
         if not lines:
             return
 
-        convo = "\n".join(f"{x['who']}：{x['text']}" for x in lines[-self.max_buf:])
+        recent = await self._with_images(lines[-self.max_buf:])
+        convo = "\n".join(f"{x['who']}：{x['text']}" for x in recent)
         prompt = f"这是刚才群里连着发的消息（最后一条是在叫我）：\n{convo}\n\n回一句。"
         prompt = await self._enrich(prompt, convo)
         reply = await self._ask(umo, prompt)
@@ -190,6 +205,76 @@ class BatchReply(Star):
         await self._send(umo, reply)
         # 复盘刚才这段：让它判词、上网查、记住（后台，不挡回复）
         asyncio.create_task(self._remember(lines, reply))
+
+    # ---------------------------------------------------------------- 看图
+
+    async def _with_images(self, lines: list[dict]) -> list[dict]:
+        """把每张图说成人话，拼回那一行的文本后面。
+
+        为什么要这一步：回复模型是 DeepSeek（纯文本），图在 prompt 里只有一个
+        「[图片]」。玩家发表情包、发截图，它一律说「图没加载出来」。
+        所以先用视觉模型（默认 dashscope/qwen3-vl-plus）描述一遍。
+
+        成本控制：
+        - 一次最多描述 `caption_max` 张（默认 2）；
+        - 同一个 URL / 文件用过的描述存内存，重复发不重复花钱；
+        - 任何一步失败都退回原来的「[图片]」，不影响回复。
+        """
+        if self.caption_max <= 0 or not lines:
+            return lines
+
+        got = 0
+        out: list[dict] = []
+        for x in lines:
+            imgs = x.get("imgs") or []
+            if not imgs or got >= self.caption_max:
+                out.append(x)
+                continue
+            cap = await self._caption(imgs[0])
+            got += 1
+            if not cap:
+                out.append(x)
+                continue
+            base = (x.get("text") or "").replace("[图片]", "").strip()
+            text = f"{base}（图：{cap}）" if base else f"（发来一张图：{cap}）"
+            out.append({**x, "text": text})
+        return out
+
+    async def _caption(self, seg) -> str:
+        key = (seg.url or seg.file or "")[:400]
+        if key and key in self._cap_cache:
+            return self._cap_cache[key]
+        try:
+            prov = self.context.get_provider_by_id(self.caption_provider_id)
+        except Exception:  # noqa: BLE001
+            prov = None
+        if prov is None:
+            logger.info(f"[batch] 没有视觉 provider: {self.caption_provider_id}")
+            return ""
+        try:
+            raw = await seg.convert_to_base64()
+            url = "data:image/png;base64," + raw
+        except Exception:  # noqa: BLE001
+            url = seg.url or seg.file or ""
+        if not url:
+            return ""
+        try:
+            resp = await prov.text_chat(
+                prompt="用中文一句话说清这张图里是什么；如果是表情包或梗图，"
+                       "补一句它想表达的情绪。不超过 40 字。",
+                session_id=uuid.uuid4().hex,
+                image_urls=[url],
+                persist=False,
+            )
+            cap = (getattr(resp, "completion_text", "") or "").strip()
+        except Exception as exc:  # noqa: BLE001 —— 看图挂了就当没有图
+            logger.info(f"[batch] 看图失败: {type(exc).__name__}: {str(exc)[:80]}")
+            return ""
+        if cap:
+            if len(key) and len(self._cap_cache) < 300:
+                self._cap_cache[key] = cap
+            logger.info(f"[batch] 看图: {cap[:40]}")
+        return cap
 
     # ---------------------------------------------------------------- 学
 

@@ -45,6 +45,10 @@ except Exception:  # noqa: BLE001
     Image = Plain = None  # type: ignore[assignment]
 
 DEFAULT_BRAIN = "https://zkysever.com"
+
+# Cloudflare 会挡掉 urllib 默认 UA（403 error code 1010）
+CLOUDFLARE_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                 "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 TOKEN_FILE = Path("/AstrBot/data/gb_lexicon_token.txt")
 SKIP_PREFIX = ("/", "#", "！", "!")
 
@@ -165,7 +169,11 @@ class GbLexicon(Star):
         req = urllib.request.Request(
             url,
             data=payload,
-            headers={"Content-Type": "application/json", "X-GB-Token": self.token},
+            headers={
+                "Content-Type": "application/json",
+                "X-GB-Token": self.token,
+                "User-Agent": CLOUDFLARE_UA,
+            },
             method="POST",
         )
         try:

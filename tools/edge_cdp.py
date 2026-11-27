@@ -92,6 +92,7 @@ class Conn:
 
         self.ws = create_connection(page_target()["webSocketDebuggerUrl"], timeout=timeout)
         self._id = 0
+        self.events = []
 
     def call(self, method: str, params: dict | None = None, timeout: float = 60.0):
         self._id += 1
@@ -103,6 +104,9 @@ class Conn:
                 data = json.loads(self.ws.recv())
             except Exception:
                 return None
+            if data.get("id") != mid and data.get("method"):
+                self.events.append(data)
+                continue
             if data.get("id") == mid:
                 if data.get("error"):
                     return {"__error__": data["error"]}
@@ -138,6 +142,32 @@ class Conn:
         if r is None or (isinstance(r, dict) and "__error__" in r):
             return {"ok": False, "why": "setFileInputFiles 失败", "res": r}
         return {"ok": True, "node": nid}
+
+    def pick_file(self, click_expr: str, path: str, wait: float = 6.0) -> dict:
+        """点按钮 → 拦下原生文件选择器 → 直接把文件塞进去。
+
+        新版封面编辑器会现点现建 <input>，点完还可能立刻丢弃，所以不能先找 input 再塞；
+        正确姿势是 Page.setInterceptFileChooserDialog，从 fileChooserOpened 拿 backendNodeId。
+        """
+        import time as _t
+
+        self.call("Page.enable", {})
+        self.call("Page.setInterceptFileChooserDialog", {"enabled": True})
+        self.events.clear()
+        self.js(click_expr)
+        deadline = _t.time() + wait
+        while _t.time() < deadline:
+            for ev in list(self.events):
+                if ev.get("method") == "Page.fileChooserOpened":
+                    bid = (ev.get("params") or {}).get("backendNodeId")
+                    if bid:
+                        r = self.call("DOM.setFileInputFiles", {"files": [path], "backendNodeId": bid})
+                        self.call("Page.setInterceptFileChooserDialog", {"enabled": False})
+                        return {"ok": True, "backendNodeId": bid, "res": r}
+            _t.sleep(0.2)
+            self.js("1")
+        self.call("Page.setInterceptFileChooserDialog", {"enabled": False})
+        return {"ok": False, "why": "没等到 fileChooserOpened"}
 
     def close(self) -> None:
         try:

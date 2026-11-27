@@ -21,12 +21,12 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from . import admin, agent, auth, bili, bili_writer, coach, curator, db, facts, learn, lexicon
-from . import memory, search, series
+from . import memory, platform, search, series, tenant
 from . import config as cfg
 from . import vectors
 from .config import MEME_PACKS_DIR, WEB_DIR
 
-app = FastAPI(title="group-brain", version="0.22.2")
+app = FastAPI(title="group-brain", version="0.23.0")
 
 
 @app.on_event("startup")
@@ -39,6 +39,7 @@ def _startup() -> None:
     """
     vectors.clear_cache()   # 进程刚起来，别继承任何旧矩阵
     db.init()
+    tenant.ensure(conn())   # A7 平台四张表（租户/Key/用量/任务）
 
 # 不需要口令就能碰的路径。健康检查放开，方便外部探活 / 手机调试。
 # /api/lexicon/* 放开是给 AstrBot 插件用的：它在 docker 里，带不上口令 cookie，
@@ -47,7 +48,10 @@ PUBLIC = {
     "/login", "/api/health", "/favicon.ico", "/portfolio", "/series", "/api/series",
     "/api/lexicon/context", "/api/lexicon/observe", "/api/lexicon/correct",
     "/api/lexicon/confirm",
+    "/metrics",
 }
+
+platform.install(app)
 
 _ERR_TEXT = {
     "bad": "口令不对，再试一次。",
@@ -92,6 +96,8 @@ async def gate(request: Request, call_next):
     # 视频、封面连同未来往那里丢的任何东西都能被任何人下载。
     if (
         path in PUBLIC
+        # A7：开放 API 自己按 sk_live_ Key 鉴权（见 platform._auth），不走口令 cookie
+        or path.startswith("/api/v1/")
         or (path.startswith("/out/") and cfg.OUT_TOKEN)
         or auth.is_open(request.cookies.get(auth.COOKIE_NAME))
     ):
